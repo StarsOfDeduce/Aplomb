@@ -1,0 +1,5 @@
+-r requirements.txt
+
+# 只在本机打包 / 重新生成图标时需要
+pyinstaller>=6.0.0
+Pillow>=10.0.0
