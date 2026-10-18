@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# 打包产物
+build/
+dist/
+*.spec
+
+# 本地下载的 NSIS（打包安装包用，见 README）
+.tools/
+
+# 开发时生成的界面预览图
+preview/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 项目内的开发记忆（本地工具生成）
+.workbuddy-ai/
