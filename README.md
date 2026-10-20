@@ -151,6 +151,14 @@ python build.py setup      # 只做安装包
 
 产物在 `dist/`。
 
+`requirements.txt` 和 `requirements-dev.txt` 是带哈希的完整锁文件。需要升级依赖时只修改对应的 `.in` 文件，再重新生成锁文件：
+
+```bash
+python -m pip install pip-tools
+pip-compile --allow-unsafe --generate-hashes --strip-extras -o requirements.txt requirements.in
+pip-compile --allow-unsafe --generate-hashes --strip-extras -o requirements-dev.txt requirements-dev.in
+```
+
 安装包用 [NSIS](https://nsis.sourceforge.io/) 构建。把 NSIS 解压到 `.tools/nsis/`（该目录已在 `.gitignore` 里），或用环境变量指定：
 
 ```bash
@@ -200,8 +208,10 @@ Aplomb/
 ├── screenshots/
 ├── main.py
 ├── build.py
-├── requirements.txt         # 运行依赖
-└── requirements-dev.txt     # 打包 / 生成图标依赖
+├── requirements.in          # 运行时直接依赖
+├── requirements.txt         # 运行依赖完整锁文件
+├── requirements-dev.in      # 打包 / 生成图标直接依赖
+└── requirements-dev.txt     # 打包依赖完整锁文件
 ```
 
 ---

@@ -1,0 +1,5 @@
+-r requirements.in
+
+# 只在本机打包 / 重新生成图标时需要
+pyinstaller==6.22.3
+Pillow==13.0.0

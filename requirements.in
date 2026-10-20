@@ -1,0 +1,2 @@
+# 运行时直接依赖。修改后用 README 中的命令重新生成 requirements.txt。
+PySide6-Essentials==6.8.3
