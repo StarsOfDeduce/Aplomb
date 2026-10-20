@@ -52,7 +52,7 @@ def welcome_bitmap(path: Path) -> None:
     draw.text((22, 196), "把窗口摆正，", font=font("msyh.ttc", 12), fill=DIM)
     draw.text((22, 216), "仅此而已。", font=font("msyh.ttc", 12), fill=DIM)
 
-    draw.text((22, 276), "v1.0.0", font=font("segoeui.ttf", 9), fill=(94, 96, 104))
+    draw.text((22, 276), "v1.0.1", font=font("segoeui.ttf", 9), fill=(94, 96, 104))
 
     image.save(path, "BMP")
 
