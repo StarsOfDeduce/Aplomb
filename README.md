@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.1-blue?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-1.0.2-blue?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="platform">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="framework">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="license">
@@ -42,7 +42,7 @@
 
 ### ⌨️ 三个动作，够用就好
 
-居中当前窗口、选择窗口居中、全部窗口居中。默认键位避开了微信 / QQ 的 `Ctrl+Alt+A`（截图）等常见占用，全部可在设置里改，改完立即生效。
+居中当前窗口、选择窗口居中、全部窗口居中。快捷键默认留空，不会强占任何系统组合键；可在设置里按需录制，并用每项右侧的 × 随时清空，修改后立即生效。
 
 ### 🖼️ 缩略图选择器
 
@@ -72,11 +72,7 @@
 
 ## ⌨️ 快捷键
 
-| 快捷键 | 动作 |
-| :--- | :--- |
-| `Ctrl + Alt + C` | 居中当前窗口 |
-| `Ctrl + Alt + X` | 弹出选择器，挑一个或多个 |
-| `Ctrl + Alt + B` | 全部窗口居中 |
+三个快捷键默认均为“未设置”，不会占用任何全局组合键。请在设置页点击快捷键按钮录制；点击右侧的 × 可清空对应快捷键。
 
 ### 选择器怎么用
 
@@ -92,7 +88,7 @@
 
 ### 安装版
 
-从 [Releases](../../releases) 下载 `Aplomb-Setup-1.0.1.exe`：
+从 [Releases](../../releases) 下载 `Aplomb-Setup-1.0.2.exe`：
 
 - 装到 `%LOCALAPPDATA%\Programs\Aplomb`，**不弹 UAC**，不需要管理员权限
 - 可选：桌面快捷方式、开机自动启动
@@ -101,7 +97,7 @@
 
 ### 便携版
 
-下载 `Aplomb-1.0.1-portable.zip`，解压后双击 `Aplomb.exe` 即可。
+下载 `Aplomb-1.0.2-portable.zip`，解压后双击 `Aplomb.exe` 即可。
 
 配置写在同目录的 `data\` 里；删掉 `portable.txt` 就改回把配置存到 `%APPDATA%\Aplomb`。放在 U 盘里也能带着走。
 
@@ -125,9 +121,9 @@ python main.py
 
 ```json
 {
-  "hotkey_center_current": "Ctrl+Alt+C",
-  "hotkey_center_select": "Ctrl+Alt+X",
-  "hotkey_center_all": "Ctrl+Alt+B",
+  "hotkey_center_current": "",
+  "hotkey_center_select": "",
+  "hotkey_center_all": "",
   "autostart": false,
   "show_notifications": true,
   "pixel_perfect": true,

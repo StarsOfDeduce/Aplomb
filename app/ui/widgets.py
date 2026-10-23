@@ -213,6 +213,62 @@ class HotkeyEdit(QPushButton):
         super().mousePressEvent(event)
 
 
+class HotkeyClearButton(QAbstractButton):
+    """快捷键行旁的清空按钮；图标直接绘制，避免加载额外符号字体。"""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._mode = "dark"
+        self.setObjectName("HotkeyClearButton")
+        self.setAccessibleName("清空快捷键")
+        self.setToolTip("清空快捷键")
+        self.setFixedSize(28, 28)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFocusPolicy(Qt.NoFocus)
+
+    def apply_theme(self, mode: str) -> None:
+        self._mode = mode
+        self.update()
+
+    def enterEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event) -> None:  # noqa: N802
+        self.update()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event) -> None:  # noqa: N802
+        tokens = theme.palette(self._mode)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing, True)
+
+        rect = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
+        hovered = self.underMouse() and self.isEnabled()
+        if hovered or self.isDown():
+            background = QColor(tokens["row_hover"])
+            if self.isDown():
+                background = background.darker(115)
+            painter.setPen(QPen(QColor(tokens["divider_strong"]), 1))
+            painter.setBrush(background)
+            painter.drawRoundedRect(rect, 6, 6)
+
+        color = tokens["text_faint"]
+        if hovered:
+            color = tokens["danger"]
+        elif not self.isEnabled():
+            color = tokens["divider_strong"]
+
+        center = rect.center()
+        arm = 4.2
+        painter.setPen(QPen(QColor(color), 1.5, Qt.SolidLine, Qt.RoundCap))
+        painter.drawLine(QPointF(center.x() - arm, center.y() - arm),
+                         QPointF(center.x() + arm, center.y() + arm))
+        painter.drawLine(QPointF(center.x() + arm, center.y() - arm),
+                         QPointF(center.x() - arm, center.y() + arm))
+        painter.end()
+
+
 class SegmentedControl(QWidget):
     """三选一的分段控件，值用字符串。"""
 

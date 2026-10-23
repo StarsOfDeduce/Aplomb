@@ -29,6 +29,7 @@ from ..icons import app_icon
 from . import theme
 from .widgets import (
     ChromeButton,
+    HotkeyClearButton,
     HotkeyEdit,
     RowGroup,
     SectionLabel,
@@ -150,6 +151,7 @@ class SettingsWindow(QWidget):
         self._mode = "dark"
         self._centered = False
         self._hotkey_edits: dict[str, HotkeyEdit] = {}
+        self._hotkey_clear_buttons: dict[str, HotkeyClearButton] = {}
 
         self.setWindowFlags(Qt.Window | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
@@ -257,10 +259,22 @@ class SettingsWindow(QWidget):
 
         group = RowGroup(page)
         for action, key, title, desc in HOTKEY_FIELDS:
-            edit = HotkeyEdit(self.config.get(key, ""), group)
+            control = QWidget(group)
+            control_layout = QHBoxLayout(control)
+            control_layout.setContentsMargins(0, 0, 0, 0)
+            control_layout.setSpacing(8)
+
+            edit = HotkeyEdit(self.config.get(key, ""), control)
             edit.changed.connect(lambda spec, a=action: self._on_hotkey_edited(a, spec))
             self._hotkey_edits[action] = edit
-            group.add_row(SettingRow(title, desc, edit, group))
+            control_layout.addWidget(edit)
+
+            clear = HotkeyClearButton(control)
+            clear.clicked.connect(lambda _=False, a=action: self._clear_hotkey(a))
+            self._hotkey_clear_buttons[action] = clear
+            control_layout.addWidget(clear)
+
+            group.add_row(SettingRow(title, desc, control, group))
         layout.addWidget(group)
 
         layout.addSpacing(14)
@@ -312,6 +326,10 @@ class SettingsWindow(QWidget):
         self.config.set(key, spec)
         self.hotkeys_changed.emit()
 
+    def _clear_hotkey(self, action: str) -> None:
+        self._on_hotkey_edited(action, "")
+        self.refresh()
+
     def _reset_hotkeys(self) -> None:
         self.config.reset_hotkeys()
         self.refresh()
@@ -325,7 +343,8 @@ class SettingsWindow(QWidget):
             self.hotkey_status.setText(f"{names} 的组合键被其它程序占用，请换一个")
         else:
             self.hotkey_status.setObjectName("StatusOk")
-            self.hotkey_status.setText("快捷键已生效")
+            has_hotkey = any(self.config.get(key, "") for _, key, _, _ in HOTKEY_FIELDS)
+            self.hotkey_status.setText("快捷键已生效" if has_hotkey else "当前未启用快捷键")
         self._restyle(self.hotkey_status)
 
     # -- 常规 ----------------------------------------------------------- #
@@ -572,6 +591,9 @@ class SettingsWindow(QWidget):
             edit = self._hotkey_edits.get(action)
             if edit is not None and not edit.is_recording:
                 edit.set_spec(self.config.get(key, ""))
+            clear = self._hotkey_clear_buttons.get(action)
+            if clear is not None:
+                clear.setEnabled(bool(self.config.get(key, "")))
 
         self.autostart_toggle.blockSignals(True)
         self.autostart_toggle.setChecked(autostart.is_enabled())
@@ -587,6 +609,8 @@ class SettingsWindow(QWidget):
         self._mode = mode
         self.title_bar.min_button.apply_theme(mode)
         self.title_bar.close_button.apply_theme(mode)
+        for clear in self._hotkey_clear_buttons.values():
+            clear.apply_theme(mode)
         for toggle in (self.autostart_toggle, self.notify_toggle,
                        self.shadow_toggle, self.thumb_toggle):
             toggle.apply_theme(mode)

@@ -15,7 +15,7 @@ from PySide6.QtWidgets import QApplication
 from app.config import Config
 from app.ui import theme
 from app.ui.picker import PickerWindow
-from app.ui.settings_window import SettingsWindow
+from app.ui.settings_window import HOTKEY_FIELDS, SettingsWindow
 
 app = QApplication(sys.argv[:1])
 app.setQuitOnLastWindowClosed(False)
@@ -90,14 +90,22 @@ check("移除后剩 1 条", len(cfg.get("ignore_list", [])) == 1, str(cfg.get("i
 settings.switch_page(1)  # 快捷键页
 app.processEvents()
 edit = settings._hotkey_edits["center_all"]
+clear = settings._hotkey_clear_buttons["center_all"]
 edit.set_spec("Ctrl+Alt+K")
 cfg.set("hotkey_center_all", "Ctrl+Alt+K")
 settings.refresh()
 check("快捷键改后回显", edit.text().replace(" ", "") == "Ctrl+Alt+K", edit.text())
+check("已设置时清空按钮可用", clear.isEnabled())
+
+clear.click()
+app.processEvents()
+check("点击清空按钮写入空快捷键", cfg.get("hotkey_center_all") == "")
+check("清空后显示未设置", edit.text() == "未设置", edit.text())
+check("清空后按钮禁用", not clear.isEnabled())
 
 cfg.reset_hotkeys()
 settings.refresh()
-check("恢复默认", cfg.get("hotkey_center_all") == "Ctrl+Alt+B")
+check("恢复默认值为空", all(cfg.get(key) == "" for _, key, _, _ in HOTKEY_FIELDS))
 
 settings.hide()
 app.processEvents()

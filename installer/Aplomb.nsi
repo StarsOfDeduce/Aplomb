@@ -9,7 +9,7 @@ SetCompressor /SOLID lzma
 !include "FileFunc.nsh"
 
 !ifndef APP_VERSION
-  !define APP_VERSION "1.0.1"
+  !define APP_VERSION "1.0.2"
 !endif
 
 !define APP_NAME "Aplomb"
@@ -45,7 +45,7 @@ VIAddVersionKey "LegalCopyright" "StarsofDeduce"
 !define MUI_DIRECTORYPAGE_TEXT_TOP "Aplomb 会被安装到下面的目录。继续之前可以先改路径。"
 
 !define MUI_FINISHPAGE_TITLE "${APP_NAME} 已经装好了"
-!define MUI_FINISHPAGE_TEXT "程序会安静地待在系统托盘里。$\r$\n$\r$\n默认快捷键：$\r$\nCtrl + Alt + C　居中当前窗口$\r$\nCtrl + Alt + X　选择窗口居中$\r$\nCtrl + Alt + B　全部窗口居中"
+!define MUI_FINISHPAGE_TEXT "程序会安静地待在系统托盘里。$\r$\n$\r$\n快捷键默认留空，不会占用系统组合键。$\r$\n请在「设置 → 快捷键」中按需设置。"
 !define MUI_FINISHPAGE_RUN "$INSTDIR\${APP_EXE}"
 !define MUI_FINISHPAGE_RUN_TEXT "立即启动 ${APP_NAME}"
 !define MUI_FINISHPAGE_LINK "查看使用说明"

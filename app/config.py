@@ -11,10 +11,10 @@ APP_DIR_NAME = "Aplomb"
 PORTABLE_MARKER = "portable.txt"
 
 DEFAULTS: dict = {
-    # 默认键位避开了微信/QQ 的 Ctrl+Alt+A（截图）、Ctrl+Alt+S 等常见占用
-    "hotkey_center_current": "Ctrl+Alt+C",
-    "hotkey_center_select": "Ctrl+Alt+X",
-    "hotkey_center_all": "Ctrl+Alt+B",
+    # 新安装默认不占用任何全局快捷键，由用户按需启用
+    "hotkey_center_current": "",
+    "hotkey_center_select": "",
+    "hotkey_center_all": "",
     "autostart": False,
     "show_notifications": True,
     "pixel_perfect": True,
