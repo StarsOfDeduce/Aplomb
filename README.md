@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.0.2-blue?style=flat-square" alt="version">
+  <img src="https://img.shields.io/badge/version-1.0.3-blue?style=flat-square" alt="version">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="platform">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="framework">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="license">
@@ -88,7 +88,7 @@
 
 ### 安装版
 
-从 [Releases](../../releases) 下载 `Aplomb-Setup-1.0.2.exe`：
+从 [Releases](../../releases) 下载 `Aplomb-Setup-1.0.3.exe`：
 
 - 装到 `%LOCALAPPDATA%\Programs\Aplomb`，**不弹 UAC**，不需要管理员权限
 - 可选：桌面快捷方式、开机自动启动
@@ -97,7 +97,7 @@
 
 ### 便携版
 
-下载 `Aplomb-1.0.2-portable.zip`，解压后双击 `Aplomb.exe` 即可。
+下载 `Aplomb-1.0.3-portable.zip`，解压后双击 `Aplomb.exe` 即可。
 
 配置写在同目录的 `data\` 里；删掉 `portable.txt` 就改回把配置存到 `%APPDATA%\Aplomb`。放在 U 盘里也能带着走。
 

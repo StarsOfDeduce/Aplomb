@@ -91,11 +91,13 @@ settings.switch_page(1)  # 快捷键页
 app.processEvents()
 edit = settings._hotkey_edits["center_all"]
 clear = settings._hotkey_clear_buttons["center_all"]
-edit.set_spec("Ctrl+Alt+K")
-cfg.set("hotkey_center_all", "Ctrl+Alt+K")
-settings.refresh()
+check("空快捷键的清空按钮初始禁用", not clear.isEnabled())
+
+# 走与用户录制完成相同的 changed 信号路径，防止按钮状态只能靠重启刷新。
+edit.changed.emit("Ctrl+Alt+K")
+app.processEvents()
 check("快捷键改后回显", edit.text().replace(" ", "") == "Ctrl+Alt+K", edit.text())
-check("已设置时清空按钮可用", clear.isEnabled())
+check("刚设置快捷键即可立即清空", clear.isEnabled())
 
 clear.click()
 app.processEvents()

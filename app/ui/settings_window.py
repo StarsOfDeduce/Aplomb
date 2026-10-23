@@ -324,11 +324,13 @@ class SettingsWindow(QWidget):
 
         key = next(k for a, k, _, _ in HOTKEY_FIELDS if a == action)
         self.config.set(key, spec)
+        # 录制前快捷键为空时，清空按钮处于禁用状态。配置写入后立即
+        # 同步控件状态，否则 × 要等下次打开设置窗口才会变为可用。
+        self.refresh()
         self.hotkeys_changed.emit()
 
     def _clear_hotkey(self, action: str) -> None:
         self._on_hotkey_edited(action, "")
-        self.refresh()
 
     def _reset_hotkeys(self) -> None:
         self.config.reset_hotkeys()
