@@ -54,6 +54,17 @@ class MONITORINFO(ctypes.Structure):
     ]
 
 
+class WINDOWPLACEMENT(ctypes.Structure):
+    _fields_ = [
+        ("length", w.UINT),
+        ("flags", w.UINT),
+        ("showCmd", w.UINT),
+        ("ptMinPosition", POINT),
+        ("ptMaxPosition", POINT),
+        ("rcNormalPosition", RECT),
+    ]
+
+
 class BITMAPINFOHEADER(ctypes.Structure):
     _fields_ = [
         ("biSize", w.DWORD),
@@ -116,6 +127,16 @@ MONITOR_DEFAULTTONEAREST = 2
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_CLOAKED = 14
 
+EVENT_OBJECT_SHOW = 0x8002
+EVENT_OBJECT_LOCATIONCHANGE = 0x800B
+EVENT_SYSTEM_MOVESIZESTART = 0x000A
+WINEVENT_OUTOFCONTEXT = 0x0000
+OBJID_WINDOW = 0
+
+# DPI 感知伪句柄：不是真实句柄，是相对地址常量，直接按指针传
+DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2 = ctypes.c_void_p(-4)
+PROCESS_PER_MONITOR_DPI_AWARE = 2
+
 PW_RENDERFULLCONTENT = 0x00000002
 
 WM_HOTKEY = 0x0312
@@ -136,6 +157,9 @@ BI_RGB = 0
 DIB_RGB_COLORS = 0
 
 WNDENUMPROC = ctypes.WINFUNCTYPE(w.BOOL, w.HWND, w.LPARAM)
+WINEVENTPROC = ctypes.WINFUNCTYPE(
+    None, w.HANDLE, w.DWORD, w.HWND, w.LONG, w.LONG, w.LONG, w.LONG
+)
 
 
 # --------------------------------------------------------------------------- #
@@ -172,6 +196,14 @@ _proto(user32.GetAncestor, [w.HWND, w.UINT], w.HWND)
 _proto(user32.SetWindowPos, [w.HWND, w.HWND, ctypes.c_int, ctypes.c_int,
                              ctypes.c_int, ctypes.c_int, w.UINT], w.BOOL)
 _proto(user32.ShowWindowAsync, [w.HWND, ctypes.c_int], w.BOOL)
+_proto(user32.GetWindowPlacement, [w.HWND, ctypes.POINTER(WINDOWPLACEMENT)], w.BOOL)
+_proto(user32.SetWindowPlacement, [w.HWND, ctypes.POINTER(WINDOWPLACEMENT)], w.BOOL)
+_proto(user32.SetWinEventHook,
+       [w.UINT, w.UINT, w.HMODULE, WINEVENTPROC, w.DWORD, w.DWORD, w.UINT],
+       w.HANDLE)
+_proto(user32.UnhookWinEvent, [w.HANDLE], w.BOOL)
+_proto(user32.SetProcessDpiAwarenessContext, [ctypes.c_void_p], w.BOOL)
+_proto(user32.SetProcessDPIAware, [], w.BOOL)
 _proto(user32.GetCursorPos, [ctypes.POINTER(POINT)], w.BOOL)
 _proto(user32.RegisterHotKey, [w.HWND, ctypes.c_int, w.UINT, w.UINT], w.BOOL)
 _proto(user32.UnregisterHotKey, [w.HWND, ctypes.c_int], w.BOOL)
@@ -272,6 +304,55 @@ def get_window_rect(hwnd: int) -> RECT | None:
     if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
         return None
     return rect
+
+
+def get_placement(hwnd: int) -> WINDOWPLACEMENT | None:
+    """窗口的放置信息。最小化窗口的真实还原矩形在 rcNormalPosition 里。
+
+    注意 rcNormalPosition 是工作区坐标（原点随任务栏位置偏移），
+    与屏幕坐标互换要用显示器信息换算，见 windows.py。
+    """
+    placement = WINDOWPLACEMENT()
+    placement.length = ctypes.sizeof(WINDOWPLACEMENT)
+    if not user32.GetWindowPlacement(hwnd, ctypes.byref(placement)):
+        return None
+    return placement
+
+
+def set_placement(hwnd: int, placement: WINDOWPLACEMENT) -> bool:
+    placement.length = ctypes.sizeof(WINDOWPLACEMENT)
+    return bool(user32.SetWindowPlacement(hwnd, ctypes.byref(placement)))
+
+
+def set_process_dpi_awareness() -> bool:
+    """显式把本进程声明为 DPI 感知，必须在创建任何窗口之前调用。
+
+    不申报（或申报失效）的进程会被 Windows 按 DPI 虚拟化糊弄：窗口坐标
+    接口返回逻辑坐标，而 DWM 边框是物理坐标 —— 两把尺子混着做减法，
+    居中会算出几百像素的垃圾偏移。Qt 6 启动时也会代为申报，但那是框架
+    的隐式行为，可能随打包方式或 Qt 版本悄悄失效；这里自己申报一次，
+    把"碰巧生效"变成"白纸黑字"。
+    """
+    # 已经被申报过时后续调用会失败，但值已被先到者定下，不算错误
+    try:
+        if user32.SetProcessDpiAwarenessContext(
+                DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2):
+            return True
+    except AttributeError:
+        pass  # Windows 10 1607 以前没有这个入口
+    try:
+        shcore = ctypes.WinDLL("shcore", use_last_error=True)
+        shcore.SetProcessDpiAwareness.argtypes = [ctypes.c_int]
+        shcore.SetProcessDpiAwareness.restype = ctypes.c_long
+        if shcore.SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE) == 0:
+            return True
+    except (AttributeError, OSError):
+        pass
+    try:
+        # 最后兜底：至少声明系统级感知，坐标不被虚拟化就行
+        return bool(user32.SetProcessDPIAware())
+    except AttributeError:
+        return False
 
 
 def get_visible_frame(hwnd: int) -> RECT | None:

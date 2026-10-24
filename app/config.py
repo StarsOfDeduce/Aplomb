@@ -21,6 +21,10 @@ DEFAULTS: dict = {
     "theme": "system",          # system | dark | light
     "picker_thumbnails": True,
     "ignore_list": [],
+    # 居中记忆：居中过的程序记进 remembered_apps，它们的新窗口
+    # 出现时自动再居中（事件驱动，无轮询）
+    "remember_centered": True,
+    "remembered_apps": [],
 }
 
 

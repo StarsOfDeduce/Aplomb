@@ -13,6 +13,8 @@ sys.path.insert(0, str(BASE))
 
 from PIL import Image, ImageDraw, ImageFont
 
+from app import __version__
+
 BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
 
@@ -52,7 +54,7 @@ def welcome_bitmap(path: Path) -> None:
     draw.text((22, 196), "把窗口摆正，", font=font("msyh.ttc", 12), fill=DIM)
     draw.text((22, 216), "仅此而已。", font=font("msyh.ttc", 12), fill=DIM)
 
-    draw.text((22, 276), "v1.0.3", font=font("segoeui.ttf", 9), fill=(94, 96, 104))
+    draw.text((22, 276), f"v{__version__}", font=font("segoeui.ttf", 9), fill=(94, 96, 104))
 
     image.save(path, "BMP")
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, Signal
 from PySide6.QtGui import QGuiApplication
 from PySide6.QtWidgets import (
     QButtonGroup,
@@ -40,6 +40,11 @@ from .widgets import (
 from .window_chooser import WindowChooser
 
 SHADOW = 18
+# 页面可用区：860x664 减去外围阴影边距、标题栏(52)和导航栏(42)。
+# 页面的 sizeHint 一旦超过它，窗口固定尺寸(664)就会被布局"首选高度"
+# 反超 —— 半透明窗口在拖动等几何校验时会被重设为首选尺寸，表现为
+# 窗口拉长、绘制风暴、界面卡死。所有页面的尺寸提示都封顶在这里。
+PAGE_CAP = QSize(860 - 2 * SHADOW, 664 - 2 * SHADOW - 52 - 42)
 HOTKEY_FIELDS = (
     ("center_current", "hotkey_center_current", "居中当前窗口", "把前台窗口移到所在屏幕正中"),
     ("center_select", "hotkey_center_select", "选择窗口居中", "呼出窗口浮层，挑一个或多个居中"),
@@ -49,9 +54,46 @@ HOTKEY_FIELDS = (
 PAGES = (
     ("01 / PREFERENCES", "常规"),
     ("02 / SHORTCUTS", "快捷键"),
-    ("03 / EXCLUSIONS", "忽略列表"),
+    ("03 / LISTS", "程序名单"),
     ("04 / ABOUT", "关于"),
 )
+
+
+class CompactList(QListWidget):
+    """sizeHint 收敛的列表。
+
+    QListWidget 默认 sizeHint 高达 192px，两份名单加起来把整页的
+    首选高度顶到 760px，超出固定窗口；半透明窗口一旦内容溢出，
+    移动时会被系统拉伸变形。列表在布局里靠 stretch 撑开，sizeHint
+    只需给个小的保底值。
+    """
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(200, 80)
+
+
+class CappedPage(QWidget):
+    """尺寸提示被钉死的页面容器（原因见 PAGE_CAP）。
+
+    sizeHint 封顶防止布局首选高度超过窗口；minimumSizeHint 钉到很小
+    有更关键的原因：QGraphicsDropShadowEffect 会把内层容器的有效最小
+    尺寸撑大约 88px（模糊半径×2 + 偏移），页面最小值一旦越过
+    664 - 36(边距) - 94(标题+导航) - 88(效果) ≈ 446，Qt 就会在拖动等
+    几何校验时把"固定尺寸"的窗口放大到有效最小值，表现为窗口拉长、
+    绘制风暴、界面卡死。窗口是固定尺寸，页面最小值只参与约束计算，
+    钉小没有副作用。
+    """
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        # 带布局的控件，Qt 取最小值时直接问布局、不走 minimumSizeHint
+        # 虚函数；显式 setMinimumSize 才是布局计算认可的硬上限
+        self.setMinimumSize(QSize(100, 100))
+
+    def sizeHint(self):  # noqa: N802
+        size = super().sizeHint()
+        return QSize(min(size.width(), PAGE_CAP.width()),
+                     min(size.height(), PAGE_CAP.height()))
 
 
 class TitleBar(QWidget):
@@ -140,6 +182,7 @@ class ValueRow(QWidget):
 class SettingsWindow(QWidget):
     hotkeys_changed = Signal()
     theme_changed = Signal(str)
+    remember_changed = Signal()
     quit_requested = Signal()
     center_current = Signal()
     center_select = Signal()
@@ -161,6 +204,16 @@ class SettingsWindow(QWidget):
 
         self._build()
         self.refresh()
+
+    # ------------------------------------------------------------------ #
+    def sizeHint(self):  # noqa: N802
+        """半透明窗口在拖动等几何校验时会被重设为"首选尺寸"。
+        布局算出的首选高度可能超过固定高度，窗口就会在拖动中被拉长。
+        这里把首选尺寸钉死为固定尺寸，彻底消除可被放大到的目标值。"""
+        return QSize(860, 664)
+
+    def minimumSizeHint(self):  # noqa: N802
+        return QSize(860, 664)
 
     # ------------------------------------------------------------------ #
     def _build(self) -> None:
@@ -229,7 +282,7 @@ class SettingsWindow(QWidget):
     @staticmethod
     def _page_shell(index: int, desc: str) -> tuple[QWidget, QVBoxLayout]:
         kicker, title = PAGES[index]
-        page = QWidget()
+        page = CappedPage()
         layout = QVBoxLayout(page)
         layout.setContentsMargins(24, 18, 24, 20)
         layout.setSpacing(0)
@@ -405,36 +458,72 @@ class SettingsWindow(QWidget):
             self.autostart_toggle.setChecked(not enabled)
             self.autostart_toggle.blockSignals(False)
 
+    def _on_remember(self, enabled: bool) -> None:
+        self.config.set("remember_centered", enabled)
+        self.remember_changed.emit()
+
     def _on_theme(self, mode: str) -> None:
         self.config.set("theme", mode)
         self.theme_changed.emit(mode)
 
-    # -- 忽略列表 ------------------------------------------------------- #
+    # -- 程序名单 ------------------------------------------------------- #
     def _page_ignore(self) -> QWidget:
         page, layout = self._page_shell(
-            2, "列表里的程序不会被任何居中动作移动，也不会出现在选择器里。"
+            2, "两份名单都按程序名（exe）匹配，改动即时生效。"
+               "同一程序同时出现在两份名单里时，以忽略列表优先。"
         )
 
-        frame = QFrame(page)
+        # —— 忽略列表 —— #
+        layout.addSpacing(16)
+        layout.addWidget(SectionLabel("忽略列表", page))
+        layout.addSpacing(8)
+        layout.addWidget(self._ignore_section(page), 1)
+        layout.addSpacing(6)
+        layout.addLayout(self._ignore_buttons(page))
+
+        # —— 居中记忆名单 —— #
+        layout.addSpacing(22)
+        layout.addWidget(SectionLabel("居中记忆名单", page))
+        layout.addSpacing(8)
+
+        self.remember_toggle = ToggleSwitch(page)
+        self.remember_toggle.toggled.connect(self._on_remember)
+        layout.addWidget(SettingRow(
+            "居中记忆",
+            "开启时，名单内程序的新窗口自动居中；关闭时，名单保留但只手动触发",
+            self.remember_toggle, page,
+        ))
+        layout.addSpacing(4)
+        layout.addWidget(self._remember_section(page), 1)
+        layout.addSpacing(6)
+        layout.addLayout(self._remember_buttons(page))
+        return page
+
+    @staticmethod
+    def _list_frame(parent: QWidget) -> tuple[QFrame, QVBoxLayout]:
+        frame = QFrame(parent)
         frame.setObjectName("ListFrame")
         frame.setAttribute(Qt.WA_StyledBackground, True)
-        frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(1, 1, 1, 1)
+        inner = QVBoxLayout(frame)
+        inner.setContentsMargins(1, 1, 1, 1)
+        return frame, inner
 
-        self.ignore_list = QListWidget(frame)
+    def _ignore_section(self, page: QWidget) -> QFrame:
+        frame, inner = self._list_frame(page)
+
+        self.ignore_list = CompactList(frame)
         self.ignore_list.setSelectionMode(QListWidget.ExtendedSelection)
         self.ignore_list.setAlternatingRowColors(False)
-        frame_layout.addWidget(self.ignore_list)
-        layout.addWidget(frame, 1)
+        inner.addWidget(self.ignore_list)
 
         self.ignore_empty = QLabel("还没有忽略任何程序", self.ignore_list.viewport())
         self.ignore_empty.setObjectName("PickerEmpty")
         self.ignore_empty.setAlignment(Qt.AlignCenter)
         self.ignore_empty.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.ignore_list.viewport().installEventFilter(self)
+        return frame
 
-        layout.addSpacing(14)
-
+    def _ignore_buttons(self, page: QWidget) -> QHBoxLayout:
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
 
@@ -459,9 +548,54 @@ class SettingsWindow(QWidget):
         buttons.addWidget(remove_button)
 
         buttons.addStretch(1)
-        layout.addLayout(buttons)
-        return page
+        return buttons
 
+    def _remember_section(self, page: QWidget) -> QFrame:
+        frame, inner = self._list_frame(page)
+
+        self.remember_list = CompactList(frame)
+        self.remember_list.setSelectionMode(QListWidget.ExtendedSelection)
+        self.remember_list.setAlternatingRowColors(False)
+        inner.addWidget(self.remember_list)
+
+        self.remember_empty = QLabel(
+            "还没有记住任何程序——居中一个窗口后会自动记下它",
+            self.remember_list.viewport(),
+        )
+        self.remember_empty.setObjectName("PickerEmpty")
+        self.remember_empty.setAlignment(Qt.AlignCenter)
+        self.remember_empty.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.remember_list.viewport().installEventFilter(self)
+        return frame
+
+    def _remember_buttons(self, page: QWidget) -> QHBoxLayout:
+        buttons = QHBoxLayout()
+        buttons.setSpacing(8)
+
+        pick_button = QPushButton("从窗口选择…", page)
+        pick_button.setObjectName("PrimaryButton")
+        pick_button.setCursor(Qt.PointingHandCursor)
+        pick_button.setToolTip("把某个正在运行的程序加入自动居中名单")
+        pick_button.clicked.connect(self._add_remember_from_windows)
+        buttons.addWidget(pick_button)
+
+        add_button = QPushButton("选择程序…", page)
+        add_button.setObjectName("GhostButton")
+        add_button.setCursor(Qt.PointingHandCursor)
+        add_button.setToolTip("程序没在运行时，用这个找它的 exe；若它在忽略列表里，会同时移出忽略列表")
+        add_button.clicked.connect(self._add_remember)
+        buttons.addWidget(add_button)
+
+        remove_button = QPushButton("移除选中", page)
+        remove_button.setObjectName("GhostButton")
+        remove_button.setCursor(Qt.PointingHandCursor)
+        remove_button.clicked.connect(self._remove_remember)
+        buttons.addWidget(remove_button)
+
+        buttons.addStretch(1)
+        return buttons
+
+    # ---- 忽略列表操作 ---- #
     def _add_ignore_from_windows(self) -> None:
         current = list(self.config.get("ignore_list", []))
         chooser = WindowChooser(current, self)
@@ -517,9 +651,86 @@ class SettingsWindow(QWidget):
         self.ignore_empty.setGeometry(self.ignore_list.viewport().rect())
         self.ignore_empty.setVisible(self.ignore_list.count() == 0)
 
+    # ---- 居中记忆名单操作 ---- #
+    def _add_remember_from_windows(self) -> None:
+        # 已忽略的程序不给选：它在忽略列表里，自动居中永远不会生效
+        exclude = list(self.config.get("remembered_apps", [])) + \
+            list(self.config.get("ignore_list", []))
+        chooser = WindowChooser(exclude, self)
+        chooser.apply_theme(self._mode)
+        if chooser.exec() != QDialog.Accepted:
+            return
+
+        names = chooser.selected_exe_names()
+        if not names:
+            return
+
+        merged = list(self.config.get("remembered_apps", []))
+        existing = {name.lower() for name in merged}
+        for name in names:
+            if name.lower() not in existing:
+                merged.append(name)
+                existing.add(name.lower())
+        self.config.set("remembered_apps", merged)
+        self._reload_remember_list()
+        self.remember_changed.emit()
+
+    def _add_remember(self) -> None:
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "选择要自动居中的程序", "C:/Program Files",
+            "可执行文件 (*.exe);;所有文件 (*.*)",
+        )
+        if not paths:
+            return
+        merged = list(self.config.get("remembered_apps", []))
+        existing = {name.lower() for name in merged}
+        # 用户明确要"自动居中"它，忽略列表里同名项一并移出，避免两名单打架
+        ignored = [i.lower() for i in self.config.get("ignore_list", [])]
+        drop = set()
+        for path in paths:
+            name = Path(path).name
+            if not name:
+                continue
+            if name.lower() not in existing:
+                merged.append(name)
+                existing.add(name.lower())
+            if name.lower() in ignored:
+                drop.add(name)
+        if drop:
+            kept = [i for i in self.config.get("ignore_list", []) if i not in drop]
+            self.config.set("ignore_list", kept)
+            self._reload_ignore_list()
+        self.config.set("remembered_apps", merged)
+        self._reload_remember_list()
+        self.remember_changed.emit()
+
+    def _remove_remember(self) -> None:
+        selected = {item.text() for item in self.remember_list.selectedItems()}
+        if not selected:
+            return
+        items = [i for i in self.config.get("remembered_apps", []) if i not in selected]
+        self.config.set("remembered_apps", items)
+        self._reload_remember_list()
+        self.remember_changed.emit()
+
+    def _reload_remember_list(self) -> None:
+        self.remember_list.clear()
+        for name in self.config.get("remembered_apps", []):
+            item = QListWidgetItem(name)
+            item.setToolTip(name)
+            self.remember_list.addItem(item)
+        self._sync_remember_empty()
+
+    def _sync_remember_empty(self) -> None:
+        self.remember_empty.setGeometry(self.remember_list.viewport().rect())
+        self.remember_empty.setVisible(self.remember_list.count() == 0)
+
     def eventFilter(self, obj, event):  # noqa: N802
-        if obj is self.ignore_list.viewport() and event.type() == QEvent.Resize:
-            self._sync_ignore_empty()
+        if event.type() == QEvent.Resize:
+            if obj is self.ignore_list.viewport():
+                self._sync_ignore_empty()
+            elif obj is self.remember_list.viewport():
+                self._sync_remember_empty()
         return super().eventFilter(obj, event)
 
     # -- 关于 ----------------------------------------------------------- #
@@ -603,9 +814,11 @@ class SettingsWindow(QWidget):
 
         self.notify_toggle.setChecked(bool(self.config.get("show_notifications", True)))
         self.shadow_toggle.setChecked(bool(self.config.get("pixel_perfect", True)))
+        self.remember_toggle.setChecked(bool(self.config.get("remember_centered", True)))
         self.thumb_toggle.setChecked(bool(self.config.get("picker_thumbnails", True)))
         self.theme_segment.set_value(self.config.get("theme", "system"))
         self._reload_ignore_list()
+        self._reload_remember_list()
 
     def apply_theme(self, mode: str) -> None:
         self._mode = mode
@@ -614,7 +827,7 @@ class SettingsWindow(QWidget):
         for clear in self._hotkey_clear_buttons.values():
             clear.apply_theme(mode)
         for toggle in (self.autostart_toggle, self.notify_toggle,
-                       self.shadow_toggle, self.thumb_toggle):
+                       self.shadow_toggle, self.remember_toggle, self.thumb_toggle):
             toggle.apply_theme(mode)
         self.update()
 

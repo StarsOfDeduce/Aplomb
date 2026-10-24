@@ -106,6 +106,45 @@ if info is not None:
     check("关闭阴影修正后按窗口矩形居中", abs(naive_dx) <= 1,
           f"偏移 dx={naive_dx:.1f}")
 
+    # ------------------------------------------------- 最小化窗口不污染还原几何
+    # 旧版 bug：对最小化窗口 GetWindowRect 拿到 (-32000,-32000) 的停车位
+    # 矩形，还原竞态超时后照样 SetWindowPos，把还原尺寸写坏成 ~160x28，
+    # 应用退出时存下畸形几何，下次打开就"乱飘"。
+    SW_MINIMIZE = 6
+    W.user32.ShowWindowAsync(hwnd, SW_MINIMIZE)
+    deadline = time.time() + 2
+    while time.time() < deadline and not W.user32.IsIconic(hwnd):
+        app.processEvents()
+        time.sleep(0.05)
+    check("目标窗口已最小化", W.user32.IsIconic(hwnd))
+
+    stub = W.get_window_rect(hwnd)
+    print(f"    停车位矩形（仅展示，不应参与计算） "
+          f"{stub.left},{stub.top} {stub.width}x{stub.height}")
+
+    min_info = winlib.inspect(hwnd)
+    check("最小化时盘点不用 -32000 停车位",
+          min_info is not None and min_info.rect.left > -30000
+          and min_info.rect.width >= 300,
+          f"rect={None if min_info is None else (min_info.rect.left, min_info.rect.top, min_info.rect.width, min_info.rect.height)}")
+
+    ok_min, reason_min = winlib.center(min_info, pixel_perfect=True)
+    deadline = time.time() + 2
+    while time.time() < deadline and W.user32.IsIconic(hwnd):
+        app.processEvents()
+        time.sleep(0.05)
+    check("最小化窗口居中成功", ok_min, reason_min)
+    check("窗口已被还原", not W.user32.IsIconic(hwnd))
+    after_min = W.get_window_rect(hwnd)
+    check("还原后尺寸未被写坏",
+          after_min is not None and after_min.width >= 300 and after_min.height >= 200,
+          f"{None if after_min is None else (after_min.width, after_min.height)}")
+    placement = W.get_placement(hwnd)
+    check("还原位置记录正常",
+          placement is not None
+          and placement.rcNormalPosition.left > -30000
+          and placement.rcNormalPosition.width >= 300)
+
 # 注意：目标窗口先别关，下面还要验证"不居中自己"之后仍能居中它
 
 # ---------------------------------------------------------------- 不居中自己

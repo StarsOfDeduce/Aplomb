@@ -22,6 +22,7 @@ from app import win32api as W
 from app import windows as winlib
 from app.config import Config, system_prefers_dark
 from app.hotkeys import HotkeyManager
+from app.remember import RememberManager
 from app.ui.picker import PickerWindow
 from app.ui.settings_window import SettingsWindow
 from app.ui.theme import stylesheet
@@ -84,6 +85,9 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
         self.hotkeys = HotkeyManager(self.hwnd, self)
         self.hotkeys.triggered.connect(self._on_hotkey)
 
+        # 居中记忆：居中过的程序，新窗口出现时自动再居中
+        self.remember = RememberManager(self.config, self)
+
         self.tray = TrayManager(self)
         self.settings: SettingsWindow | None = None
         self.picker: PickerWindow | None = None
@@ -111,6 +115,7 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
             self.settings = SettingsWindow(self.config)
             self.settings.hotkeys_changed.connect(self._on_hotkeys_changed)
             self.settings.theme_changed.connect(self._on_theme_changed)
+            self.settings.remember_changed.connect(self._on_remember_changed)
             self.settings.quit_requested.connect(self.quit)
             self.settings.apply_theme(self.mode)
             self.settings.notify_hotkey_result(self._hotkey_failures)
@@ -144,6 +149,9 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
 
     def _on_hotkeys_changed(self) -> None:
         self.reload_hotkeys()
+
+    def _on_remember_changed(self) -> None:
+        self.remember.sync()
 
     def _on_tray_autostart(self, enabled: bool) -> None:
         if autostart.set_enabled(enabled):
@@ -181,7 +189,10 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
             self.action_center_all()
 
     def action_center_current(self) -> None:
-        ok, reason = winlib.center_foreground(self.config.get("pixel_perfect", True))
+        ok, reason = winlib.center_foreground(
+            self.config.get("pixel_perfect", True),
+            on_centered=self.remember.record,
+        )
         # 没有原因说明是"无需提示"的情况，别弹空通知
         if not ok and reason:
             self._notify(reason)
@@ -190,6 +201,7 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
         count, total = winlib.center_all(
             self.config.get("pixel_perfect", True),
             self.config.get("ignore_list", []),
+            on_centered=self.remember.record,
         )
         if count:
             self._notify(f"已居中 {count} 个窗口")
@@ -216,6 +228,7 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
             ok, _ = winlib.center(info, pixel_perfect)
             if ok:
                 done += 1
+                self.remember.record(info)
         if done:
             winlib.activate(hwnds[0])
         else:
@@ -251,6 +264,9 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
 
 
 def main() -> int:
+    # 必须在 QApplication 之前：显式申报 DPI 感知，全程统一用物理像素坐标
+    W.set_process_dpi_awareness()
+
     args = sys.argv[1:]
 
     app = QApplication(sys.argv)

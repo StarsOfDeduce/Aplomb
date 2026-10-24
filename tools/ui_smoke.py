@@ -86,6 +86,26 @@ settings.ignore_list.item(0).setSelected(True)
 settings._remove_ignore()
 check("移除后剩 1 条", len(cfg.get("ignore_list", [])) == 1, str(cfg.get("ignore_list")))
 
+# 居中记忆名单与开关
+cfg.set("remember_centered", True)
+cfg.set("remembered_apps", ["note.exe", "pad.exe"])
+settings.refresh()
+check("记忆名单载入", settings.remember_list.count() == 2)
+settings.remember_toggle.setChecked(False)
+app.processEvents()
+check("关闭居中记忆写入配置", cfg.get("remember_centered") is False)
+settings.remember_toggle.setChecked(True)
+app.processEvents()
+check("重新开启居中记忆写入配置", cfg.get("remember_centered") is True)
+settings.remember_list.item(0).setSelected(True)
+settings._remove_remember()
+check("记忆名单移除后剩 1 条",
+      len(cfg.get("remembered_apps", [])) == 1, str(cfg.get("remembered_apps")))
+settings.remember_list.item(0).setSelected(True)
+settings._remove_remember()
+check("记忆名单可清空", cfg.get("remembered_apps") == [])
+check("记忆名单空态提示可见", settings.remember_empty.isVisibleTo(settings.remember_list))
+
 # 快捷键修改
 settings.switch_page(1)  # 快捷键页
 app.processEvents()

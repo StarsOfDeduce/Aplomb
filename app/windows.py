@@ -74,6 +74,70 @@ def _exe_name(path: str) -> str:
     return path.rsplit("\\", 1)[-1] if path else ""
 
 
+# 阴影/隐形边框的单侧偏移不会超过这个值。超过说明两套坐标系混了
+# （典型：DPI 虚拟化下 GetWindowRect 与 DWM 边框不在一个尺度），
+# 此时必须放弃"像素级修正"，退回普通矩形居中，宁可不准也不能乱飞。
+MAX_SHADOW_OFFSET = 32
+
+
+def _work_to_screen(rect: W.RECT, monitor: W.MONITORINFO) -> W.RECT:
+    """WINDOWPLACEMENT 的工作区坐标 -> 屏幕坐标。"""
+    dx = monitor.rcMonitor.left - monitor.rcWork.left
+    dy = monitor.rcMonitor.top - monitor.rcWork.top
+    return W.RECT(rect.left + dx, rect.top + dy, rect.right + dx, rect.bottom + dy)
+
+
+def _screen_to_work(rect: W.RECT, monitor: W.MONITORINFO) -> W.RECT:
+    dx = monitor.rcMonitor.left - monitor.rcWork.left
+    dy = monitor.rcMonitor.top - monitor.rcWork.top
+    return W.RECT(rect.left - dx, rect.top - dy, rect.right - dx, rect.bottom - dy)
+
+
+def _monitor_for_rect(rect: W.RECT) -> W.MONITORINFO | None:
+    """矩形中心所在的显示器。"""
+    pt = W.POINT((rect.left + rect.right) // 2, (rect.top + rect.bottom) // 2)
+    monitor = W.user32.MonitorFromPoint(pt, W.MONITOR_DEFAULTTONEAREST)
+    if not monitor:
+        return None
+    info = W.MONITORINFO()
+    info.cbSize = ctypes.sizeof(W.MONITORINFO)
+    if not W.user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+        return None
+    return info
+
+
+def _restore_geometry(hwnd: int) -> tuple[W.RECT, W.MONITORINFO] | None:
+    """最小化窗口的还原矩形 + 归属显示器。
+
+    归属按还原位置判断 —— 停车位 (-32000,-32000) 在多显示器时会指到
+    错误的屏上，用它的工作区算居中目标就跟着错。
+    """
+    placement = W.get_placement(hwnd)
+    if placement is None:
+        return None
+    normal = placement.rcNormalPosition
+    if normal.width <= 0 or normal.height <= 0:
+        return None
+    monitor = _monitor_for_rect(normal) or W.get_monitor_info(hwnd)
+    if monitor is None:
+        return None
+    return _work_to_screen(normal, monitor), monitor
+
+
+def _effective_rect(hwnd: int, fallback: W.RECT | None = None) -> W.RECT | None:
+    """窗口的"真实"矩形。
+
+    最小化窗口的 GetWindowRect 是 (-32000,-32000) 的停车位，宽高也是
+    任务栏按钮般的残影尺寸 —— 拿它算几何会把还原矩形写坏。最小化时
+    一律改用 WINDOWPLACEMENT 的还原矩形。
+    """
+    if W.user32.IsIconic(hwnd):
+        geometry = _restore_geometry(hwnd)
+        if geometry is not None:
+            return geometry[0]
+    return W.get_window_rect(hwnd) or fallback
+
+
 def _is_fullscreen(frame: W.RECT, monitor: W.RECT, style: int) -> bool:
     if not (style & W.WS_POPUP):
         return False
@@ -121,12 +185,16 @@ def inspect(hwnd: int, allow_own: bool = False) -> WindowInfo | None:
     if pid.value == _own_pid() and not allow_own:
         return None
 
-    rect = W.get_window_rect(hwnd)
-    if rect is None or rect.width <= 0 or rect.height <= 0:
-        return None
-
-    monitor = W.get_monitor_info(hwnd)
-    if monitor is None:
+    monitor = None
+    rect = None
+    if W.user32.IsIconic(hwnd):
+        geometry = _restore_geometry(hwnd)
+        if geometry is not None:
+            rect, monitor = geometry
+    if rect is None:
+        rect = W.get_window_rect(hwnd)
+        monitor = W.get_monitor_info(hwnd)
+    if rect is None or monitor is None or rect.width <= 0 or rect.height <= 0:
         return None
 
     frame = W.get_visible_frame(hwnd) or rect
@@ -199,50 +267,106 @@ def list_windows(ignore_list: list[str] | None = None,
 def _target_rect(info: WindowInfo, pixel_perfect: bool) -> tuple[int, int, int, int]:
     """算目标位置。几何一律现取，不用缓存值 —— 否则连续按两次会算错阴影偏移。"""
     work = info.work_rect
-    rect = W.get_window_rect(info.hwnd) or info.rect
+    rect = _effective_rect(info.hwnd) or info.rect
 
     if pixel_perfect:
-        frame = W.get_visible_frame(info.hwnd) or rect
-        shadow_l = frame.left - rect.left
-        shadow_t = frame.top - rect.top
-        frame_x = work.left + (work.width - frame.width) // 2
-        frame_y = work.top + (work.height - frame.height) // 2
-        x = frame_x - shadow_l
-        y = frame_y - shadow_t
-    else:
-        x = work.left + (work.width - rect.width) // 2
-        y = work.top + (work.height - rect.height) // 2
-
+        frame = W.get_visible_frame(info.hwnd)
+        if frame is not None:
+            dl = frame.left - rect.left
+            dt = frame.top - rect.top
+            dr = rect.right - frame.right
+            db = rect.bottom - frame.bottom
+            if max(abs(dl), abs(dt), abs(dr), abs(db)) <= MAX_SHADOW_OFFSET:
+                frame_x = work.left + (work.width - frame.width) // 2
+                frame_y = work.top + (work.height - frame.height) // 2
+                return frame_x - dl, frame_y - dt, rect.width, rect.height
+        # 拿不到可见边框（最小化），或偏移大得不像阴影 —— 退回矩形居中
+    x = work.left + (work.width - rect.width) // 2
+    y = work.top + (work.height - rect.height) // 2
     return x, y, rect.width, rect.height
 
 
-def _restore(hwnd: int) -> None:
-    """还原最小化/最大化窗口，并等它真的完成（异步调用，最多等 ~60ms）。"""
+def _restore_wait(hwnd: int, timeout: float = 0.5) -> bool:
+    """还原最小化/最大化窗口，等它真的完成。
+
+    ShowWindowAsync 是异步的，目标进程一忙 60ms 根本不够。等不到就返回
+    False —— 调用方绝不能带着中间状态去算几何、去移动窗口。
+    """
     W.user32.ShowWindowAsync(hwnd, W.SW_RESTORE)
-    for _ in range(4):
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
         if not W.user32.IsIconic(hwnd) and not W.user32.IsZoomed(hwnd):
-            return
+            return True
         time.sleep(0.015)
+    return not W.user32.IsIconic(hwnd) and not W.user32.IsZoomed(hwnd)
+
+
+def _center_restore_position(hwnd: int) -> bool:
+    """不动窗口的可见状态，只把它还原后的落点改成工作区正中。
+
+    对最小化窗口走 SetWindowPos 是在 -32000 停车位上做几何，会把还原
+    尺寸写坏（应用退出时存下畸形位置，下次打开就"乱飞"）。
+    SetWindowPlacement 才是改还原位置的正规途径。
+    """
+    geometry = _restore_geometry(hwnd)
+    if geometry is None:
+        return False
+    normal, monitor = geometry
+    work = monitor.rcWork
+    x = work.left + (work.width - normal.width) // 2
+    y = work.top + (work.height - normal.height) // 2
+    placement = W.get_placement(hwnd)
+    if placement is None:
+        return False
+    placement.rcNormalPosition = _screen_to_work(
+        W.RECT(x, y, x + normal.width, y + normal.height), monitor
+    )
+    return W.set_placement(hwnd, placement)
 
 
 def center(info: WindowInfo, pixel_perfect: bool = True,
-           restore: bool = True) -> tuple[bool, str]:
-    """把单个窗口居中，返回 (是否成功, 原因)。"""
+           restore: bool = True,
+           on_centered=None) -> tuple[bool, str]:
+    """把单个窗口居中，返回 (是否成功, 原因)。
+
+    on_centered 在成功移动后以 WindowInfo 回调一次，供"居中记忆"记账。
+    """
     if info.class_name in IMMOVABLE_CLASSES:
         return False, "系统窗口不参与居中"
     if info.fullscreen:
         return False, "全屏窗口已跳过"
 
     hwnd = info.hwnd
-    if (info.minimized or info.maximized) and restore:
-        _restore(hwnd)
-        refreshed = W.get_window_rect(hwnd)
-        if refreshed:
-            info.rect = refreshed
+
+    if info.minimized:
+        if restore and _restore_wait(hwnd):
+            info.minimized = False
+        else:
+            # 还原超时，或调用方要求保持原状：只改还原落点，不碰可见状态
+            if _center_restore_position(hwnd):
+                if on_centered is not None:
+                    on_centered(info)
+                return True, ""
+            return False, "系统拒绝了这次移动"
+    elif info.maximized and restore:
+        if not _restore_wait(hwnd):
+            return False, "窗口还在还原中，稍后再试"
+        info.maximized = False
+
+    rect = _effective_rect(hwnd)
+    if rect is None or rect.left <= -30000 or rect.width <= 0 or rect.height <= 0:
+        return False, "窗口几何暂时不可用，已跳过"
+    info.rect = rect
 
     x, y, cx, cy = _target_rect(info, pixel_perfect)
-    if not W.set_window_pos(hwnd, x, y, cx, cy):
+    flags = W.SWP_NOZORDER | W.SWP_NOACTIVATE
+    if (rect.width, rect.height) == (cx, cy):
+        # 纯移动：尺寸不变就不重设，目标应用不会收到多余的 WM_SIZE
+        flags |= W.SWP_NOSIZE
+    if not W.set_window_pos(hwnd, x, y, cx, cy, flags):
         return False, "系统拒绝了这次移动"
+    if on_centered is not None:
+        on_centered(info)
     return True, ""
 
 
@@ -255,7 +379,8 @@ def belongs_to_us(hwnd: int) -> bool:
     return pid.value == _own_pid()
 
 
-def center_foreground(pixel_perfect: bool = True) -> tuple[bool, str]:
+def center_foreground(pixel_perfect: bool = True,
+                      on_centered=None) -> tuple[bool, str]:
     """居中前台窗口。
 
     如果焦点落在 Aplomb 自己身上（比如正在看设置界面），也照样居中它自己 ——
@@ -272,11 +397,12 @@ def center_foreground(pixel_perfect: bool = True) -> tuple[bool, str]:
         if belongs_to_us(hwnd):
             return False, ""
         return False, "当前窗口不支持居中"
-    return center(info, pixel_perfect)
+    return center(info, pixel_perfect, on_centered=on_centered)
 
 
 def center_all(pixel_perfect: bool = True,
-               ignore_list: list[str] | None = None) -> tuple[int, int]:
+               ignore_list: list[str] | None = None,
+               on_centered=None) -> tuple[int, int]:
     """批量居中。跳过最小化、最大化、全屏窗口 —— 不做惊喜式打扰。
 
     自己的设置窗口同样会被居中（三种模式行为保持一致）。
@@ -287,7 +413,7 @@ def center_all(pixel_perfect: bool = True,
         if info.fullscreen or info.maximized or info.minimized:
             continue
         total += 1
-        ok, _ = center(info, pixel_perfect, restore=False)
+        ok, _ = center(info, pixel_perfect, restore=False, on_centered=on_centered)
         if ok:
             count += 1
     return count, total
