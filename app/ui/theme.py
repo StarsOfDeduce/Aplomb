@@ -6,6 +6,18 @@
 
 from __future__ import annotations
 
+from PySide6.QtWidgets import QProxyStyle, QStyle
+
+
+class NoFocusRectStyle(QProxyStyle):
+    """保留控件焦点与键盘操作，只隐藏系统绘制的虚线焦点框。"""
+
+    def drawPrimitive(self, element, option, painter, widget=None) -> None:  # noqa: N802
+        if element == QStyle.PE_FrameFocusRect:
+            return
+        super().drawPrimitive(element, option, painter, widget)
+
+
 DARK = {
     "bg": "#171719",
     "panel": "#1E1E21",

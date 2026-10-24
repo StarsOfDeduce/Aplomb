@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.0-blue?style=flat-square" alt="Version 1.1.0">
+  <img src="https://img.shields.io/badge/version-1.1.1-blue?style=flat-square" alt="Version 1.1.1">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="PySide6">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
@@ -56,7 +56,7 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 
 ### Installer
 
-Download `Aplomb-Setup-1.1.0.exe` from [Releases](../../releases).
+Download `Aplomb-Setup-1.1.1.exe` from [Releases](../../releases).
 
 - Installs to `%LOCALAPPDATA%\Programs\Aplomb` without a UAC prompt.
 - Can create a desktop shortcut and start Aplomb when you sign in.
@@ -65,7 +65,7 @@ Download `Aplomb-Setup-1.1.0.exe` from [Releases](../../releases).
 
 ### Portable build
 
-Download `Aplomb-1.1.0-portable.zip`, extract it, and run `Aplomb.exe`.
+Download `Aplomb-1.1.1-portable.zip`, extract it, and run `Aplomb.exe`.
 
 Portable settings are stored in the adjacent `data\` directory. Delete `portable.txt` if you prefer to store settings in `%APPDATA%\Aplomb` instead.
 

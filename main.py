@@ -25,7 +25,7 @@ from app.hotkeys import HotkeyManager
 from app.remember import RememberManager
 from app.ui.picker import PickerWindow
 from app.ui.settings_window import SettingsWindow
-from app.ui.theme import stylesheet
+from app.ui.theme import NoFocusRectStyle, stylesheet
 from app.ui.tray import TrayManager
 
 MUTEX_NAME = "Global\\Aplomb_SingleInstance_v1"
@@ -276,6 +276,8 @@ def main() -> int:
     args = sys.argv[1:]
 
     app = QApplication(sys.argv)
+    # 保留实际焦点和键盘操作，只去掉 Windows 样式绘制的虚线焦点框。
+    app.setStyle(NoFocusRectStyle())
     app.setApplicationName(APP_NAME)
     app.setQuitOnLastWindowClosed(False)
     # 不设 applicationDisplayName：Qt 会把它追加到每个窗口标题后面，
