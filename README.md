@@ -20,7 +20,7 @@
 
 **Aplomb** means both composure and plumb alignment. The application follows the same idea: stay out of the way and put windows exactly where they belong.
 
-Aplomb lives in the system tray and centers windows through three optional global shortcuts. It also includes a thumbnail picker for arranging several windows, an application ignore list, and light and dark themes. It does not poll the window list while idle, and its per-user installer does not require administrator privileges.
+Aplomb lives in the system tray and centers windows through three optional global shortcuts. It also includes a thumbnail picker for arranging several windows, a centering-memory list that keeps your apps centered, an ignore list, and light and dark themes. It does not poll the window list while idle, and its per-user installer does not require administrator privileges.
 
 ![Aplomb settings in dark mode](screenshots/general-dark.png)
 
@@ -33,12 +33,12 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 ## Features
 
 - **Three focused actions:** center the active window, choose windows to center, or center every eligible window.
-- **Centering memory:** apps you center are remembered, and their new windows are re-centered automatically in about a tenth of a second. If the app repositions its own window afterwards, Aplomb pulls it back — and stops the moment you drag the window yourself. Event-driven (`SetWinEventHook`), with no polling while idle. Toggle it on the General page and manage the remembered list on the Program lists page in Settings.
+- **Centering memory:** apps you center are remembered, and their new windows are re-centered automatically in about a tenth of a second. If the app repositions its own window afterwards, Aplomb pulls it back — and stops the moment you drag the window yourself. Event-driven (`SetWinEventHook`), with no polling while idle. The toggle and the remembered list live together on the Program lists page in Settings.
 - **Unassigned shortcuts by default:** Aplomb does not claim global key combinations until you record them in Settings. Each shortcut can also be cleared instantly.
 - **Thumbnail picker:** filter by title or process name, navigate with the keyboard, and select multiple windows with `Ctrl` + click.
 - **Multi-monitor awareness:** each window is centered on the display that currently contains it.
 - **Automatic exclusions:** skips full-screen, maximized, shell, ignored, and unresponsive windows.
-- **Simple ignore list:** select an application from currently open windows or choose an executable manually.
+- **Program lists:** an ignore list plus the remembered list of the centering memory, each manageable by picking from open windows or choosing an executable. The remembered list updates in real time while the settings window is open.
 - **System, light, and dark themes:** a restrained interface with flat colors, thin borders, and rounded corners.
 - **Low idle overhead:** hotkey-driven operation with no continuous window polling.
 
@@ -132,9 +132,9 @@ python build.py setup
 | :--- | :--- |
 | ![Hotkey settings](screenshots/hotkeys-dark.png) | ![Light theme](screenshots/general-light.png) |
 
-| Ignore list | Choose from open windows |
+| Program lists | Choose from open windows |
 | :--- | :--- |
-| ![Ignore list](screenshots/ignore-dark.png) | ![Window chooser](screenshots/chooser-dark.png) |
+| ![Program lists](screenshots/lists-dark.png) | ![Window chooser](screenshots/chooser-dark.png) |
 
 ## Project structure
 
@@ -143,6 +143,7 @@ Aplomb/
 ├── app/
 │   ├── win32api.py           # ctypes declarations and safe Win32 wrappers
 │   ├── windows.py            # window discovery, filtering, and centering
+│   ├── remember.py           # event-driven centering memory
 │   ├── hotkeys.py            # RegisterHotKey and native event filtering
 │   ├── thumbnails.py         # PrintWindow thumbnail capture
 │   ├── icons.py              # application icon loading and caching
@@ -179,6 +180,8 @@ python tools/hang_probe.py  # startup time and UI-thread responsiveness
 - Pure moves pass `SWP_NOSIZE` so the target app receives no spurious `WM_SIZE`.
 - Shadow compensation is clamped to a sane margin; if `GetWindowRect` and the DWM frame bounds disagree wildly (for example under DPI virtualization), Aplomb falls back to plain rectangle centering instead of producing a wild offset.
 - The process declares per-monitor-v2 DPI awareness itself at startup, before any window exists — window coordinates are physical pixels by contract, not by Qt's implicit behavior.
+- The centering memory listens for `EVENT_OBJECT_SHOW`, centers after ~80 ms, then briefly watches `EVENT_OBJECT_LOCATIONCHANGE`: if the app repositions its own window, Aplomb pulls it back within tens of milliseconds. `EVENT_SYSTEM_MOVESIZESTART` ends the tracking immediately, so a user drag always wins. Each window is corrected at most a few times and tracked for only a couple of seconds.
+- Settings pages pin their layout size hints below the visible area of the fixed-size translucent window. Qt enlarges a fixed frameless translucent window during geometry changes whenever a page's preferred height exceeds the visible area — the stretch-then-freeze some users saw when dragging the settings window in early 1.1.0 builds.
 - Window titles are read with `SendMessageTimeout` after checking `IsHungAppWindow`, so an unresponsive application cannot freeze the picker.
 - Duplicate Qt native `WM_HOTKEY` deliveries are filtered by message identity and timestamp.
 - Picker thumbnails release GDI resources promptly, and deferred Qt deletions are explicitly drained when the picker closes.
@@ -197,6 +200,7 @@ Measured on a 1080p desktop with seven open windows:
 
 - Windows 10 and 11 only.
 - Exclusive full-screen windows are intentionally not moved.
+- The centering memory tracks a window for only a couple of seconds after it appears; an app that keeps repositioning its window afterwards is left alone, and can be excluded via the ignore list if its behavior is undesirable.
 - Some Electron or hardware-accelerated windows cannot be captured with `PrintWindow`; the picker displays the application icon instead.
 - Do not run installed and portable builds at the same time. A single-instance lock redirects the second launch to the existing process.
 - The dark-blue half of the tray icon has limited contrast on dark taskbars at 16 px.
