@@ -14,7 +14,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QObject, QTimer
+from PySide6.QtCore import QObject, QTimer, Signal
 
 from . import win32api as W
 from . import windows as winlib
@@ -42,6 +42,9 @@ class _Track:
 
 
 class RememberManager(QObject):
+    # 名单有新增时发出，设置界面据此实时刷新（无需关掉重开）
+    apps_changed = Signal()
+
     def __init__(self, config, parent: QObject | None = None) -> None:
         super().__init__(parent)
         self.config = config
@@ -85,6 +88,7 @@ class RememberManager(QObject):
         if name.lower() not in {a.lower() for a in apps}:
             apps.append(name)
             self.config.set("remembered_apps", apps)
+            self.apps_changed.emit()
         self.sync()
 
     # ------------------------------------------------------------------ #

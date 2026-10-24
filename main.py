@@ -117,6 +117,8 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
             self.settings.theme_changed.connect(self._on_theme_changed)
             self.settings.remember_changed.connect(self._on_remember_changed)
             self.settings.quit_requested.connect(self.quit)
+            # 设置窗口开着时，新居中的程序实时出现在名单里
+            self.remember.apps_changed.connect(self._on_remembered_apps_changed)
             self.settings.apply_theme(self.mode)
             self.settings.notify_hotkey_result(self._hotkey_failures)
         return self.settings
@@ -152,6 +154,10 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
 
     def _on_remember_changed(self) -> None:
         self.remember.sync()
+
+    def _on_remembered_apps_changed(self) -> None:
+        if self.settings is not None:
+            self.settings.refresh()
 
     def _on_tray_autostart(self, enabled: bool) -> None:
         if autostart.set_enabled(enabled):
