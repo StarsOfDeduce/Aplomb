@@ -1,7 +1,4 @@
-"""从当前打开的窗口里挑要忽略的程序。
-
-比让用户去翻 exe 路径省事：直接列出屏幕上正在跑的窗口，勾选即可。
-"""
+"""从当前打开的窗口里选择程序或精确窗口规则。"""
 
 from __future__ import annotations
 
@@ -21,7 +18,7 @@ from PySide6.QtWidgets import (
 )
 
 from ..icons import window_icon
-from ..windows import list_windows
+from ..windows import WindowInfo, automation_eligible, list_windows, normalized_exe_path
 from .widgets import ChromeButton
 
 SHADOW = 16
@@ -29,14 +26,18 @@ SHADOW = 16
 
 class WindowChooser(QDialog):
     def __init__(self, ignore_list: list[str] | None = None,
-                 parent: QWidget | None = None) -> None:
+                 parent: QWidget | None = None, *, purpose: str = "ignore",
+                 existing_rule_keys: set[tuple[str, str]] | None = None) -> None:
         super().__init__(parent)
         self._drag_offset: QPoint | None = None
         self._mode = "dark"
+        self._purpose = purpose
+        self._existing_rule_keys = existing_rule_keys or set()
 
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setWindowTitle("选择要忽略的窗口")
+        self.setWindowTitle("选择自动居中的窗口" if purpose == "remember"
+                            else "选择要忽略的窗口")
         self.setModal(True)
         self.setFixedSize(600, 540)
 
@@ -69,7 +70,12 @@ class WindowChooser(QDialog):
         content.setContentsMargins(24, 4, 24, 20)
         content.setSpacing(0)
 
-        hint = QLabel("选中后，这些程序不会被任何居中动作移动，也不会出现在选择器里。", body)
+        hint_text = (
+            "只为选中的主窗口类型建立精确规则；同一程序的通知、工具窗和对话框不会跟随。"
+            if self._purpose == "remember"
+            else "选中后，这些程序不会被任何居中动作移动，也不会出现在选择器里。"
+        )
+        hint = QLabel(hint_text, body)
         hint.setObjectName("RowDesc")
         hint.setWordWrap(True)
         content.addWidget(hint)
@@ -125,7 +131,10 @@ class WindowChooser(QDialog):
         layout.setContentsMargins(24, 0, 14, 0)
         layout.setSpacing(10)
 
-        title = QLabel("选择要忽略的窗口", header)
+        title = QLabel(
+            "选择自动居中的窗口" if self._purpose == "remember" else "选择要忽略的窗口",
+            header,
+        )
         title.setObjectName("AppName")
         layout.addWidget(title)
 
@@ -142,10 +151,17 @@ class WindowChooser(QDialog):
         for info in list_windows([], include_minimized=True):
             if info.exe_name.lower() in existing:
                 continue
+            if self._purpose == "remember":
+                key = (normalized_exe_path(info.exe_path), info.class_name.casefold())
+                if not automation_eligible(info) or key in self._existing_rule_keys:
+                    continue
             item = QListWidgetItem(f"{info.title}   ·   {info.exe_name}")
             item.setIcon(window_icon(info.exe_path))
-            item.setData(Qt.UserRole, info.exe_name)
-            item.setToolTip(f"{info.title}\n{info.exe_path}")
+            item.setData(Qt.UserRole, info)
+            detail = f"{info.title}\n{info.exe_path}"
+            if self._purpose == "remember":
+                detail += f"\n窗口类：{info.class_name}"
+            item.setToolTip(detail)
             self.list.addItem(item)
 
         if self.list.count() == 0:
@@ -162,10 +178,19 @@ class WindowChooser(QDialog):
     def selected_exe_names(self) -> list[str]:
         names: list[str] = []
         for item in self.list.selectedItems():
-            name = item.data(Qt.UserRole)
+            info = item.data(Qt.UserRole)
+            name = info.exe_name if isinstance(info, WindowInfo) else ""
             if name and name not in names:
                 names.append(name)
         return names
+
+    def selected_windows(self) -> list[WindowInfo]:
+        result: list[WindowInfo] = []
+        for item in self.list.selectedItems():
+            info = item.data(Qt.UserRole)
+            if isinstance(info, WindowInfo):
+                result.append(info)
+        return result
 
     def _center_on_parent(self, parent: QWidget | None) -> None:
         screen = QGuiApplication.screenAt(QGuiApplication.primaryScreen().geometry().center())

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
+
+# 自检必须与用户的真实 %APPDATA% 配置隔离。
+_config_temp = tempfile.TemporaryDirectory(prefix="aplomb-selftest-")
+os.environ["APLOMB_CONFIG_DIR"] = _config_temp.name
 
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtWidgets import QApplication, QWidget
@@ -106,7 +112,7 @@ if info is not None:
     check("关闭阴影修正后按窗口矩形居中", abs(naive_dx) <= 1,
           f"偏移 dx={naive_dx:.1f}")
 
-    # ------------------------------------------------- 最小化窗口不污染还原几何
+    # --------------------------------------- 非普通状态不改变，只更新还原几何
     # 旧版 bug：对最小化窗口 GetWindowRect 拿到 (-32000,-32000) 的停车位
     # 矩形，还原竞态超时后照样 SetWindowPos，把还原尺寸写坏成 ~160x28，
     # 应用退出时存下畸形几何，下次打开就"乱飘"。
@@ -129,21 +135,49 @@ if info is not None:
           f"rect={None if min_info is None else (min_info.rect.left, min_info.rect.top, min_info.rect.width, min_info.rect.height)}")
 
     ok_min, reason_min = winlib.center(min_info, pixel_perfect=True)
-    deadline = time.time() + 2
-    while time.time() < deadline and W.user32.IsIconic(hwnd):
-        app.processEvents()
-        time.sleep(0.05)
     check("最小化窗口居中成功", ok_min, reason_min)
-    check("窗口已被还原", not W.user32.IsIconic(hwnd))
-    after_min = W.get_window_rect(hwnd)
-    check("还原后尺寸未被写坏",
-          after_min is not None and after_min.width >= 300 and after_min.height >= 200,
-          f"{None if after_min is None else (after_min.width, after_min.height)}")
+    check("居中不会退出最小化", W.user32.IsIconic(hwnd))
     placement = W.get_placement(hwnd)
     check("还原位置记录正常",
           placement is not None
           and placement.rcNormalPosition.left > -30000
           and placement.rcNormalPosition.width >= 300)
+    centered_restore = winlib._restore_geometry(hwnd)
+    restore_rect = centered_restore[0] if centered_restore else None
+    check("最小化窗口的还原落点已居中",
+          restore_rect is not None
+          and abs((restore_rect.left + restore_rect.right) / 2
+                  - (work.left + work.right) / 2) <= 1)
+
+    # 测试后由测试代码显式还原，供后续项目继续使用目标窗口。
+    SW_RESTORE = 9
+    W.user32.ShowWindowAsync(hwnd, SW_RESTORE)
+    deadline = time.time() + 2
+    while time.time() < deadline and W.user32.IsIconic(hwnd):
+        app.processEvents()
+        time.sleep(0.05)
+    after_min = W.get_window_rect(hwnd)
+    check("显式还原后尺寸未被写坏",
+          after_min is not None and after_min.width >= 300 and after_min.height >= 200,
+          f"{None if after_min is None else (after_min.width, after_min.height)}")
+
+    # 最大化窗口同样只能改将来的还原落点，不能擅自退出最大化。
+    SW_MAXIMIZE = 3
+    W.user32.ShowWindowAsync(hwnd, SW_MAXIMIZE)
+    deadline = time.time() + 2
+    while time.time() < deadline and not W.user32.IsZoomed(hwnd):
+        app.processEvents()
+        time.sleep(0.05)
+    max_info = winlib.inspect(hwnd)
+    ok_max, reason_max = winlib.center(max_info, pixel_perfect=True)
+    check("最大化/全屏窗口安全处理",
+          ok_max or reason_max == "全屏窗口已跳过", reason_max)
+    check("居中不会退出最大化", W.user32.IsZoomed(hwnd))
+    W.user32.ShowWindowAsync(hwnd, SW_RESTORE)
+    deadline = time.time() + 2
+    while time.time() < deadline and W.user32.IsZoomed(hwnd):
+        app.processEvents()
+        time.sleep(0.05)
 
 # 注意：目标窗口先别关，下面还要验证"不居中自己"之后仍能居中它
 

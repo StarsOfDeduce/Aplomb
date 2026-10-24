@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
 from pathlib import Path
 
@@ -28,8 +29,9 @@ from app.ui.settings_window import SettingsWindow
 from app.ui.theme import NoFocusRectStyle, stylesheet
 from app.ui.tray import TrayManager
 
-MUTEX_NAME = "Global\\Aplomb_SingleInstance_v1"
-INSTANCE_WINDOW_TITLE = "Aplomb::SingleInstance::v1"
+_INSTANCE_ID = os.environ.get("APLOMB_TEST_INSTANCE_ID", "v1")
+MUTEX_NAME = f"Global\\Aplomb_SingleInstance_{_INSTANCE_ID}"
+INSTANCE_WINDOW_TITLE = f"Aplomb::SingleInstance::{_INSTANCE_ID}"
 WM_APLOMB_SHOW_SETTINGS = 0x8000 + 17  # WM_APP + 17
 
 HOTKEY_BINDINGS = (
@@ -85,7 +87,7 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
         self.hotkeys = HotkeyManager(self.hwnd, self)
         self.hotkeys.triggered.connect(self._on_hotkey)
 
-        # 居中记忆：居中过的程序，新窗口出现时自动再居中
+        # 精确自动居中：匹配的主窗口出现时尽早处理一次，不持续争抢位置。
         self.remember = RememberManager(self.config, self)
 
         self.tray = TrayManager(self)
@@ -117,8 +119,8 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
             self.settings.theme_changed.connect(self._on_theme_changed)
             self.settings.remember_changed.connect(self._on_remember_changed)
             self.settings.quit_requested.connect(self.quit)
-            # 设置窗口开着时，新居中的程序实时出现在名单里
-            self.remember.apps_changed.connect(self._on_remembered_apps_changed)
+            # 设置窗口开着时，新收录的精确规则实时出现。
+            self.remember.rules_changed.connect(self._on_remembered_rules_changed)
             self.settings.apply_theme(self.mode)
             self.settings.notify_hotkey_result(self._hotkey_failures)
         return self.settings
@@ -155,7 +157,7 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
     def _on_remember_changed(self) -> None:
         self.remember.sync()
 
-    def _on_remembered_apps_changed(self) -> None:
+    def _on_remembered_rules_changed(self) -> None:
         if self.settings is not None:
             self.settings.refresh()
 
@@ -207,7 +209,6 @@ class Aplomb(QObject, QAbstractNativeEventFilter):
         count, total = winlib.center_all(
             self.config.get("pixel_perfect", True),
             self.config.get("ignore_list", []),
-            on_centered=self.remember.record,
         )
         if count:
             self._notify(f"已居中 {count} 个窗口")

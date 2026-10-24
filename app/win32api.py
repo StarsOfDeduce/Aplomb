@@ -108,7 +108,6 @@ WS_EX_TOOLWINDOW = 0x00000080
 WS_EX_APPWINDOW = 0x00040000
 WS_EX_NOACTIVATE = 0x08000000
 
-SW_RESTORE = 9
 SW_SHOWNOACTIVATE = 4
 
 HWND_TOP = 0
@@ -120,6 +119,7 @@ SWP_NOACTIVATE = 0x0010
 SWP_SHOWWINDOW = 0x0040
 
 GW_HWNDNEXT = 2
+GW_OWNER = 4
 GA_ROOT = 2
 
 MONITOR_DEFAULTTONEAREST = 2
@@ -127,10 +127,11 @@ MONITOR_DEFAULTTONEAREST = 2
 DWMWA_EXTENDED_FRAME_BOUNDS = 9
 DWMWA_CLOAKED = 14
 
+EVENT_OBJECT_CREATE = 0x8000
+EVENT_OBJECT_DESTROY = 0x8001
 EVENT_OBJECT_SHOW = 0x8002
-EVENT_OBJECT_LOCATIONCHANGE = 0x800B
-EVENT_SYSTEM_MOVESIZESTART = 0x000A
 WINEVENT_OUTOFCONTEXT = 0x0000
+WINEVENT_SKIPOWNPROCESS = 0x0002
 OBJID_WINDOW = 0
 
 # DPI 感知伪句柄：不是真实句柄，是相对地址常量，直接按指针传
@@ -307,7 +308,7 @@ def get_window_rect(hwnd: int) -> RECT | None:
 
 
 def get_placement(hwnd: int) -> WINDOWPLACEMENT | None:
-    """窗口的放置信息。最小化窗口的真实还原矩形在 rcNormalPosition 里。
+    """窗口的放置信息。非普通状态的真实还原矩形在 rcNormalPosition 里。
 
     注意 rcNormalPosition 是工作区坐标（原点随任务栏位置偏移），
     与屏幕坐标互换要用显示器信息换算，见 windows.py。

@@ -2,11 +2,17 @@
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(BASE))
+
+# 冒烟测试会重置和修改配置，绝不能碰用户的真实设置。
+_config_temp = tempfile.TemporaryDirectory(prefix="aplomb-ui-smoke-")
+os.environ["APLOMB_CONFIG_DIR"] = _config_temp.name
 
 from PySide6.QtCore import Qt
 from PySide6.QtTest import QTest
@@ -16,6 +22,7 @@ from app.config import Config
 from app.ui import theme
 from app.ui.picker import PickerWindow
 from app.ui.settings_window import HOTKEY_FIELDS, SettingsWindow
+from app.ui.window_chooser import WindowChooser
 
 app = QApplication(sys.argv[:1])
 app.setQuitOnLastWindowClosed(False)
@@ -86,25 +93,43 @@ settings.ignore_list.item(0).setSelected(True)
 settings._remove_ignore()
 check("移除后剩 1 条", len(cfg.get("ignore_list", [])) == 1, str(cfg.get("ignore_list")))
 
-# 居中记忆名单与开关
+# 精确自动居中规则、旧名单停用与双开关
 cfg.set("remember_centered", True)
-cfg.set("remembered_apps", ["note.exe", "pad.exe"])
+cfg.set("remember_after_manual_center", False)
+cfg.set("remember_rules", [{
+    "exe_path": r"C:\Program Files\Notes\note.exe",
+    "exe_name": "note.exe",
+    "class_name": "NotesMainWindow",
+}])
 settings.refresh()
-check("记忆名单载入", settings.remember_list.count() == 2)
+check("界面只载入精确规则", settings.remember_list.count() == 1)
 settings.remember_toggle.setChecked(False)
 app.processEvents()
-check("关闭居中记忆写入配置", cfg.get("remember_centered") is False)
+check("关闭自动居中写入配置", cfg.get("remember_centered") is False)
 settings.remember_toggle.setChecked(True)
 app.processEvents()
-check("重新开启居中记忆写入配置", cfg.get("remember_centered") is True)
+check("重新开启自动居中写入配置", cfg.get("remember_centered") is True)
+settings.remember_after_manual_toggle.setChecked(True)
+app.processEvents()
+check("自动收录开关独立写入配置",
+      cfg.get("remember_after_manual_center") is True)
 settings.remember_list.item(0).setSelected(True)
 settings._remove_remember()
-check("记忆名单移除后剩 1 条",
-      len(cfg.get("remembered_apps", [])) == 1, str(cfg.get("remembered_apps")))
-settings.remember_list.item(0).setSelected(True)
-settings._remove_remember()
-check("记忆名单可清空", cfg.get("remembered_apps") == [])
-check("记忆名单空态提示可见", settings.remember_empty.isVisibleTo(settings.remember_list))
+check("精确规则可移除", cfg.get("remember_rules") == [])
+check("规则名单空态提示可见", settings.remember_empty.isVisibleTo(settings.remember_list))
+
+remember_chooser = WindowChooser([], settings, purpose="remember")
+eligible_items = [
+    remember_chooser.list.item(i)
+    for i in range(remember_chooser.list.count())
+    if remember_chooser.list.item(i).flags() != Qt.NoItemFlags
+]
+check("精确规则选择器可列出主窗口", len(eligible_items) > 0)
+if eligible_items:
+    eligible_items[0].setSelected(True)
+    check("精确规则选择器返回完整窗口信息",
+          len(remember_chooser.selected_windows()) == 1)
+remember_chooser.close()
 
 # 快捷键修改
 settings.switch_page(1)  # 快捷键页

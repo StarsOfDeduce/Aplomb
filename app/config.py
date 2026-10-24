@@ -21,9 +21,11 @@ DEFAULTS: dict = {
     "theme": "system",          # system | dark | light
     "picker_thumbnails": True,
     "ignore_list": [],
-    # 居中记忆：居中过的程序记进 remembered_apps，它们的新窗口
-    # 出现时自动再居中（事件驱动，无轮询）
+    # 精确自动居中：按完整路径 + 窗口类匹配，只处理标准主窗口。
     "remember_centered": True,
+    "remember_after_manual_center": False,
+    "remember_rules": [],
+    # 1.1.x 兼容字段：升级读取时直接清空，不参与自动移动。
     "remembered_apps": [],
 }
 
@@ -41,6 +43,9 @@ def is_portable() -> bool:
 
 
 def config_dir() -> Path:
+    override = os.environ.get("APLOMB_CONFIG_DIR")
+    if override:
+        return Path(override)
     if is_portable():
         return install_dir() / "data"
     base = os.environ.get("APPDATA") or str(Path.home())
@@ -67,6 +72,7 @@ class Config:
         return self._first_run
 
     def load(self) -> None:
+        clear_legacy_remembered = False
         try:
             raw = json.loads(self.path.read_text(encoding="utf-8"))
             if isinstance(raw, dict):
@@ -78,11 +84,18 @@ class Config:
                     if isinstance(default, bool) and not isinstance(value, bool):
                         value = default
                     self._data[key] = value
+                # 用户已确认：1.1.x 的宽泛 exe 名单直接永久清空。
+                # 它无法安全推导为“路径 + 窗口类”的精确规则。
+                if self._data.get("remembered_apps"):
+                    self._data["remembered_apps"] = []
+                    clear_legacy_remembered = True
         except FileNotFoundError:
             pass
         except (OSError, ValueError):
             # 配置损坏就退回默认值，不影响启动
             self._data = dict(DEFAULTS)
+        if clear_legacy_remembered:
+            self.save()
 
     def save(self) -> None:
         try:

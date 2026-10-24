@@ -6,11 +6,11 @@
 
 <p align="center">
   <b>Precision window centering for Windows</b><br>
-  <sub>Three configurable global shortcuts · pixel-perfect alignment · thumbnail picker · system tray</sub>
+  <sub>Three configurable global shortcuts · pixel-perfect alignment · thumbnail picker · precise auto-centering · system tray</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.1-blue?style=flat-square" alt="Version 1.1.1">
+  <img src="https://img.shields.io/badge/version-1.2.0-blue?style=flat-square" alt="Version 1.2.0">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="PySide6">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT License">
@@ -22,7 +22,7 @@
 
 **Aplomb** means both composure and plumb alignment. The application follows the same idea: stay out of the way and put windows exactly where they belong.
 
-Aplomb lives in the system tray and centers windows through three optional global shortcuts. It also includes a thumbnail picker for arranging several windows, a centering-memory list that keeps your apps centered, an ignore list, and light and dark themes. It does not poll the window list while idle, and its per-user installer does not require administrator privileges.
+Aplomb lives in the system tray and centers windows through three optional global shortcuts. It also includes a thumbnail picker for arranging several windows, precise main-window auto-centering rules, an ignore list, and light and dark themes. It does not poll the window list while idle, and its per-user installer does not require administrator privileges.
 
 ![Aplomb settings in dark mode](screenshots/general-dark.png)
 
@@ -35,12 +35,12 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 ## Features
 
 - **Three focused actions:** center the active window, choose windows to center, or center every eligible window.
-- **Centering memory:** apps you center are remembered, and their new windows are re-centered automatically in about a tenth of a second. If the app repositions its own window afterwards, Aplomb pulls it back — and stops the moment you drag the window yourself. Event-driven (`SetWinEventHook`), with no polling while idle. The toggle and the remembered list live together on the Program lists page in Settings.
+- **Precise auto-centering:** rules match the full executable path and window class, and only standard main windows qualify. Notifications, tool windows, and ordinary dialogs are left alone. Aplomb centers once as early as window creation or display allows, then respects all later app and user positioning. It is event-driven (`SetWinEventHook`) with no idle polling. Automatic enrollment is a separate, off-by-default option.
 - **Unassigned shortcuts by default:** Aplomb does not claim global key combinations until you record them in Settings. Each shortcut can also be cleared instantly.
 - **Thumbnail picker:** filter by title or process name, navigate with the keyboard, and select multiple windows with `Ctrl` + click.
 - **Multi-monitor awareness:** each window is centered on the display that currently contains it.
-- **Automatic exclusions:** skips full-screen, maximized, shell, ignored, and unresponsive windows.
-- **Program lists:** an ignore list plus the remembered list of the centering memory, each manageable by picking from open windows or choosing an executable. The remembered list updates in real time while the settings window is open.
+- **State-safe behavior:** full-screen, shell, ignored, and unresponsive windows are skipped; batch operations also skip minimized and maximized windows. Selecting a non-normal window individually updates its future restore position only when safe and never changes its current state.
+- **Program lists:** the ignore list remains executable-based, while auto-centering rules can only be created from an open, eligible main window so same-process notifications are not captured accidentally.
 - **System, light, and dark themes:** a restrained interface with flat colors, thin borders, and rounded corners.
 - **Low idle overhead:** hotkey-driven operation with no continuous window polling.
 
@@ -56,7 +56,7 @@ Aplomb reads `DWMWA_EXTENDED_FRAME_BOUNDS`, aligns the visible frame, and then c
 
 ### Installer
 
-Download `Aplomb-Setup-1.1.1.exe` from [Releases](../../releases).
+Download `Aplomb-Setup-1.2.0.exe` from [Releases](../../releases).
 
 - Installs to `%LOCALAPPDATA%\Programs\Aplomb` without a UAC prompt.
 - Can create a desktop shortcut and start Aplomb when you sign in.
@@ -65,7 +65,7 @@ Download `Aplomb-Setup-1.1.1.exe` from [Releases](../../releases).
 
 ### Portable build
 
-Download `Aplomb-1.1.1-portable.zip`, extract it, and run `Aplomb.exe`.
+Download `Aplomb-1.2.0-portable.zip`, extract it, and run `Aplomb.exe`.
 
 Portable settings are stored in the adjacent `data\` directory. Delete `portable.txt` if you prefer to store settings in `%APPDATA%\Aplomb` instead.
 
@@ -97,9 +97,13 @@ python main.py
   "picker_thumbnails": true,
   "ignore_list": [],
   "remember_centered": true,
+  "remember_after_manual_center": false,
+  "remember_rules": [],
   "remembered_apps": []
 }
 ```
+
+When upgrading from 1.1.x, the old `remembered_apps` entries are cleared once because executable names alone cannot safely distinguish main windows from notifications. Recreate precise rules from currently open main windows.
 
 ## Building
 
@@ -145,7 +149,7 @@ Aplomb/
 ├── app/
 │   ├── win32api.py           # ctypes declarations and safe Win32 wrappers
 │   ├── windows.py            # window discovery, filtering, and centering
-│   ├── remember.py           # event-driven centering memory
+│   ├── remember.py           # event-driven precise auto-centering rules
 │   ├── hotkeys.py            # RegisterHotKey and native event filtering
 │   ├── thumbnails.py         # PrintWindow thumbnail capture
 │   ├── icons.py              # application icon loading and caching
@@ -177,12 +181,12 @@ python tools/hang_probe.py  # startup time and UI-thread responsiveness
 ## Implementation notes
 
 - Window geometry is read again for every operation; reusing an old rectangle can make repeated centering drift.
-- Minimized windows are never measured with `GetWindowRect` — it reports the off-screen parking slot at (-32000, -32000) with a stub size. The real restore rectangle comes from `GetWindowPlacement`, and restore positions are written back with `SetWindowPlacement`, so an app can never save a corrupted geometry from Aplomb's move.
-- Restoring a window is awaited before any move; if the target process is still busy, Aplomb sets the restore position instead of moving the window in a transient state.
+- Aplomb never restores a minimized or maximized window on its own. The real restore rectangle comes from `GetWindowPlacement`; only `rcNormalPosition` is updated while the existing show state is preserved. This also avoids the minimized window's off-screen parking slot at (-32000, -32000).
+- Full-screen windows are always skipped. Aplomb sends no maximize, restore, or full-screen shortcut, and every centering path preserves the current window state.
 - Pure moves pass `SWP_NOSIZE` so the target app receives no spurious `WM_SIZE`.
 - Shadow compensation is clamped to a sane margin; if `GetWindowRect` and the DWM frame bounds disagree wildly (for example under DPI virtualization), Aplomb falls back to plain rectangle centering instead of producing a wild offset.
 - The process declares per-monitor-v2 DPI awareness itself at startup, before any window exists — window coordinates are physical pixels by contract, not by Qt's implicit behavior.
-- The centering memory listens for `EVENT_OBJECT_SHOW`, centers after ~80 ms, then briefly watches `EVENT_OBJECT_LOCATIONCHANGE`: if the app repositions its own window, Aplomb pulls it back within tens of milliseconds. `EVENT_SYSTEM_MOVESIZESTART` ends the tracking immediately, so a user drag always wins. Each window is corrected at most a few times and tracked for only a couple of seconds.
+- Precise auto-centering listens for window create, show, and destroy events. It attempts a pre-show move when geometry is already usable, otherwise it moves the window once as soon as the show event is delivered. It never tracks or pulls the window back afterwards. Cross-process WinEvents are asynchronous, so a completely flash-free result cannot be guaranteed for every third-party app.
 - Settings pages pin their layout size hints below the visible area of the fixed-size translucent window. Qt enlarges a fixed frameless translucent window during geometry changes whenever a page's preferred height exceeds the visible area — the stretch-then-freeze some users saw when dragging the settings window in early 1.1.0 builds.
 - Window titles are read with `SendMessageTimeout` after checking `IsHungAppWindow`, so an unresponsive application cannot freeze the picker.
 - Duplicate Qt native `WM_HOTKEY` deliveries are filtered by message identity and timestamp.
@@ -202,7 +206,7 @@ Measured on a 1080p desktop with seven open windows:
 
 - Windows 10 and 11 only.
 - Exclusive full-screen windows are intentionally not moved.
-- The centering memory tracks a window for only a couple of seconds after it appears; an app that keeps repositioning its window afterwards is left alone, and can be excluded via the ignore list if its behavior is undesirable.
+- Some apps restore their own placement after becoming visible. Aplomb deliberately does not fight them, so they may override an automatic centering attempt; the manual shortcuts remain available.
 - Some Electron or hardware-accelerated windows cannot be captured with `PrintWindow`; the picker displays the application icon instead.
 - Do not run installed and portable builds at the same time. A single-instance lock redirects the second launch to the existing process.
 - The dark-blue half of the tray icon has limited contrast on dark taskbars at 16 px.

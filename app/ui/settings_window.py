@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 from .. import APP_NAME, APP_NAME_CN, __version__, autostart
 from ..config import Config, config_path
 from ..icons import app_icon
+from ..remember import add_rule, rule_key, valid_rules
 from . import theme
 from .widgets import (
     ChromeButton,
@@ -462,6 +463,9 @@ class SettingsWindow(QWidget):
         self.config.set("remember_centered", enabled)
         self.remember_changed.emit()
 
+    def _on_remember_after_manual(self, enabled: bool) -> None:
+        self.config.set("remember_after_manual_center", enabled)
+
     def _on_theme(self, mode: str) -> None:
         self.config.set("theme", mode)
         self.theme_changed.emit(mode)
@@ -469,8 +473,8 @@ class SettingsWindow(QWidget):
     # -- 程序名单 ------------------------------------------------------- #
     def _page_ignore(self) -> QWidget:
         page, layout = self._page_shell(
-            2, "两份名单都按程序名（exe）匹配，改动即时生效。"
-               "同一程序同时出现在两份名单里时，以忽略列表优先。"
+            2, "忽略列表按程序名匹配；自动居中按程序路径与窗口类型精确匹配。"
+               "两者冲突时，以忽略列表优先。"
         )
 
         # —— 忽略列表 —— #
@@ -481,17 +485,26 @@ class SettingsWindow(QWidget):
         layout.addSpacing(6)
         layout.addLayout(self._ignore_buttons(page))
 
-        # —— 居中记忆名单 —— #
+        # —— 精确自动居中规则 —— #
         layout.addSpacing(22)
-        layout.addWidget(SectionLabel("居中记忆名单", page))
+        layout.addWidget(SectionLabel("自动居中规则", page))
         layout.addSpacing(8)
 
         self.remember_toggle = ToggleSwitch(page)
         self.remember_toggle.toggled.connect(self._on_remember)
         layout.addWidget(SettingRow(
-            "居中记忆",
-            "开启时，名单内程序的新窗口自动居中；关闭时，名单保留但只手动触发",
+            "自动居中",
+            "对精确规则匹配的主窗口尽早居中一次，不持续拉回",
             self.remember_toggle, page,
+        ))
+        layout.addSpacing(4)
+
+        self.remember_after_manual_toggle = ToggleSwitch(page)
+        self.remember_after_manual_toggle.toggled.connect(self._on_remember_after_manual)
+        layout.addWidget(SettingRow(
+            "手动居中后自动记住",
+            "只收录当前窗口和选择器操作；全部窗口居中不会批量收录",
+            self.remember_after_manual_toggle, page,
         ))
         layout.addSpacing(4)
         layout.addWidget(self._remember_section(page), 1)
@@ -559,7 +572,7 @@ class SettingsWindow(QWidget):
         inner.addWidget(self.remember_list)
 
         self.remember_empty = QLabel(
-            "还没有记住任何程序——居中一个窗口后会自动记下它",
+            "还没有自动居中规则",
             self.remember_list.viewport(),
         )
         self.remember_empty.setObjectName("PickerEmpty")
@@ -575,16 +588,9 @@ class SettingsWindow(QWidget):
         pick_button = QPushButton("从窗口选择…", page)
         pick_button.setObjectName("PrimaryButton")
         pick_button.setCursor(Qt.PointingHandCursor)
-        pick_button.setToolTip("把某个正在运行的程序加入自动居中名单")
+        pick_button.setToolTip("从已打开的标准主窗口建立精确自动居中规则")
         pick_button.clicked.connect(self._add_remember_from_windows)
         buttons.addWidget(pick_button)
-
-        add_button = QPushButton("选择程序…", page)
-        add_button.setObjectName("GhostButton")
-        add_button.setCursor(Qt.PointingHandCursor)
-        add_button.setToolTip("程序没在运行时，用这个找它的 exe；若它在忽略列表里，会同时移出忽略列表")
-        add_button.clicked.connect(self._add_remember)
-        buttons.addWidget(add_button)
 
         remove_button = QPushButton("移除选中", page)
         remove_button.setObjectName("GhostButton")
@@ -651,73 +657,44 @@ class SettingsWindow(QWidget):
         self.ignore_empty.setGeometry(self.ignore_list.viewport().rect())
         self.ignore_empty.setVisible(self.ignore_list.count() == 0)
 
-    # ---- 居中记忆名单操作 ---- #
+    # ---- 精确自动居中规则操作 ---- #
     def _add_remember_from_windows(self) -> None:
-        # 已忽略的程序不给选：它在忽略列表里，自动居中永远不会生效
-        exclude = list(self.config.get("remembered_apps", [])) + \
-            list(self.config.get("ignore_list", []))
-        chooser = WindowChooser(exclude, self)
+        keys = {rule_key(rule) for rule in valid_rules(self.config.get("remember_rules", []))}
+        chooser = WindowChooser(
+            list(self.config.get("ignore_list", [])),
+            self,
+            purpose="remember",
+            existing_rule_keys=keys,
+        )
         chooser.apply_theme(self._mode)
         if chooser.exec() != QDialog.Accepted:
             return
-
-        names = chooser.selected_exe_names()
-        if not names:
-            return
-
-        merged = list(self.config.get("remembered_apps", []))
-        existing = {name.lower() for name in merged}
-        for name in names:
-            if name.lower() not in existing:
-                merged.append(name)
-                existing.add(name.lower())
-        self.config.set("remembered_apps", merged)
-        self._reload_remember_list()
-        self.remember_changed.emit()
-
-    def _add_remember(self) -> None:
-        paths, _ = QFileDialog.getOpenFileNames(
-            self, "选择要自动居中的程序", "C:/Program Files",
-            "可执行文件 (*.exe);;所有文件 (*.*)",
-        )
-        if not paths:
-            return
-        merged = list(self.config.get("remembered_apps", []))
-        existing = {name.lower() for name in merged}
-        # 用户明确要"自动居中"它，忽略列表里同名项一并移出，避免两名单打架
-        ignored = [i.lower() for i in self.config.get("ignore_list", [])]
-        drop = set()
-        for path in paths:
-            name = Path(path).name
-            if not name:
-                continue
-            if name.lower() not in existing:
-                merged.append(name)
-                existing.add(name.lower())
-            if name.lower() in ignored:
-                drop.add(name)
-        if drop:
-            kept = [i for i in self.config.get("ignore_list", []) if i not in drop]
-            self.config.set("ignore_list", kept)
-            self._reload_ignore_list()
-        self.config.set("remembered_apps", merged)
-        self._reload_remember_list()
-        self.remember_changed.emit()
+        changed = False
+        for info in chooser.selected_windows():
+            changed = add_rule(self.config, info) or changed
+        if changed:
+            self._reload_remember_list()
+            self.remember_changed.emit()
 
     def _remove_remember(self) -> None:
-        selected = {item.text() for item in self.remember_list.selectedItems()}
+        selected = {item.data(Qt.UserRole) for item in self.remember_list.selectedItems()}
         if not selected:
             return
-        items = [i for i in self.config.get("remembered_apps", []) if i not in selected]
-        self.config.set("remembered_apps", items)
+        rules = [
+            rule for rule in valid_rules(self.config.get("remember_rules", []))
+            if ("rule", rule_key(rule)) not in selected
+        ]
+        self.config.set("remember_rules", rules)
         self._reload_remember_list()
         self.remember_changed.emit()
 
     def _reload_remember_list(self) -> None:
         self.remember_list.clear()
-        for name in self.config.get("remembered_apps", []):
-            item = QListWidgetItem(name)
-            item.setToolTip(name)
+        for rule in valid_rules(self.config.get("remember_rules", [])):
+            name = rule.get("exe_name") or Path(rule["exe_path"]).name
+            item = QListWidgetItem(f"{name}  ·  {rule['class_name']}")
+            item.setToolTip(f"{rule['exe_path']}\n窗口类：{rule['class_name']}")
+            item.setData(Qt.UserRole, ("rule", rule_key(rule)))
             self.remember_list.addItem(item)
         self._sync_remember_empty()
 
@@ -815,6 +792,9 @@ class SettingsWindow(QWidget):
         self.notify_toggle.setChecked(bool(self.config.get("show_notifications", True)))
         self.shadow_toggle.setChecked(bool(self.config.get("pixel_perfect", True)))
         self.remember_toggle.setChecked(bool(self.config.get("remember_centered", True)))
+        self.remember_after_manual_toggle.setChecked(
+            bool(self.config.get("remember_after_manual_center", False))
+        )
         self.thumb_toggle.setChecked(bool(self.config.get("picker_thumbnails", True)))
         self.theme_segment.set_value(self.config.get("theme", "system"))
         self._reload_ignore_list()
@@ -827,7 +807,8 @@ class SettingsWindow(QWidget):
         for clear in self._hotkey_clear_buttons.values():
             clear.apply_theme(mode)
         for toggle in (self.autostart_toggle, self.notify_toggle,
-                       self.shadow_toggle, self.remember_toggle, self.thumb_toggle):
+                       self.shadow_toggle, self.remember_toggle,
+                       self.remember_after_manual_toggle, self.thumb_toggle):
             toggle.apply_theme(mode)
         self.update()
 

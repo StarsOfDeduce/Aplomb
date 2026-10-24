@@ -11,6 +11,7 @@ import os
 import subprocess
 import sys
 import sysconfig
+import tempfile
 import time
 from ctypes import wintypes
 from pathlib import Path
@@ -44,11 +45,13 @@ def visible_windows(pid: int) -> list[tuple[str, int, int]]:
     return found
 
 
-def find_by_prefix(prefix: str) -> int:
+def find_by_prefix(prefix: str, pid: int | None = None) -> int:
     hit = []
 
     def callback(hwnd, _):
-        if W.get_window_text(hwnd).startswith(prefix):
+        owner = wintypes.DWORD(0)
+        W.user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
+        if (pid is None or owner.value == pid) and W.get_window_text(hwnd).startswith(prefix):
             hit.append(hwnd)
             return False
         return True
@@ -64,9 +67,21 @@ def main() -> int:
     app = QApplication(sys.argv[:1])
 
     env = os.environ.copy()
+    config_temp = tempfile.TemporaryDirectory(prefix="aplomb-e2e-")
+    env["APLOMB_CONFIG_DIR"] = config_temp.name
+    env["APLOMB_TEST_INSTANCE_ID"] = f"e2e-{os.getpid()}"
     env["PYTHONPATH"] = sysconfig.get_paths()["purelib"]
+    os.environ["APLOMB_CONFIG_DIR"] = config_temp.name
+    from app.config import Config
+    Config().update({
+        "hotkey_center_current": "Ctrl+Alt+F21",
+        "hotkey_center_select": "Ctrl+Alt+F22",
+        "hotkey_center_all": "Ctrl+Alt+F23",
+        "show_notifications": False,
+    })
     proc = subprocess.Popen(
-        [getattr(sys, "_base_executable", sys.executable), str(BASE / "main.py")],
+        [getattr(sys, "_base_executable", sys.executable), str(BASE / "main.py"),
+         "--settings"],
         env=env,
     )
     print(f"启动 pid={proc.pid}")
@@ -76,7 +91,7 @@ def main() -> int:
         print("进程提前退出，退出码:", proc.returncode)
         return 1
 
-    host = find_by_prefix("Aplomb::SingleInstance")
+    host = find_by_prefix("Aplomb::SingleInstance", proc.pid)
     print(f"宿主窗口={host}  可见窗口={visible_windows(proc.pid)}")
     print(f"内存: {memory_mb(proc.pid):.1f} MB")
 
@@ -86,7 +101,7 @@ def main() -> int:
     shot("e2e_1_settings.png")
 
     # 收起设置
-    settings = W.user32.FindWindowW(None, "Aplomb")
+    settings = find_by_prefix("Aplomb", proc.pid)
     if settings:
         W.user32.PostMessageW(settings, WM_CLOSE, 0, 0)
     time.sleep(0.8)

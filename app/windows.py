@@ -8,8 +8,8 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import sys
-import time
 from ctypes import wintypes
 from dataclasses import dataclass
 
@@ -55,6 +55,9 @@ class WindowInfo:
     minimized: bool
     maximized: bool
     fullscreen: bool
+    style: int
+    ex_style: int
+    owner: int
 
     @property
     def key(self) -> str:
@@ -107,7 +110,7 @@ def _monitor_for_rect(rect: W.RECT) -> W.MONITORINFO | None:
 
 
 def _restore_geometry(hwnd: int) -> tuple[W.RECT, W.MONITORINFO] | None:
-    """最小化窗口的还原矩形 + 归属显示器。
+    """最小化或最大化窗口的还原矩形 + 归属显示器。
 
     归属按还原位置判断 —— 停车位 (-32000,-32000) 在多显示器时会指到
     错误的屏上，用它的工作区算居中目标就跟着错。
@@ -149,7 +152,9 @@ def _is_fullscreen(frame: W.RECT, monitor: W.RECT, style: int) -> bool:
     )
 
 
-def inspect(hwnd: int, allow_own: bool = False) -> WindowInfo | None:
+def inspect(hwnd: int, allow_own: bool = False, *,
+            require_visible: bool = True,
+            require_title: bool = True) -> WindowInfo | None:
     """把 hwnd 变成 WindowInfo，不合格就返回 None。
 
     allow_own=True 时不排除本程序自己的窗口 —— 用于「用户明确要居中当前窗口」
@@ -159,7 +164,7 @@ def inspect(hwnd: int, allow_own: bool = False) -> WindowInfo | None:
         return None
 
     style = W.GetWindowLongPtrW(hwnd, W.GWL_STYLE)
-    if not (style & W.WS_VISIBLE):
+    if require_visible and not (style & W.WS_VISIBLE):
         return None
     if W.is_cloaked(hwnd):
         return None
@@ -176,8 +181,8 @@ def inspect(hwnd: int, allow_own: bool = False) -> WindowInfo | None:
     if W.user32.IsHungAppWindow(hwnd):
         return None
 
-    title = W.get_window_text(hwnd)
-    if not title:
+    title = W.get_window_text(hwnd) if require_title else ""
+    if require_title and not title:
         return None
 
     pid = wintypes.DWORD(0)
@@ -218,7 +223,42 @@ def inspect(hwnd: int, allow_own: bool = False) -> WindowInfo | None:
         minimized=bool(W.user32.IsIconic(hwnd)),
         maximized=bool(W.user32.IsZoomed(hwnd)),
         fullscreen=_is_fullscreen(frame, monitor.rcMonitor, style),
+        style=style,
+        ex_style=ex_style,
+        owner=int(W.user32.GetWindow(hwnd, W.GW_OWNER) or 0),
     )
+
+
+def normalized_exe_path(path: str) -> str:
+    """用于精确规则匹配的稳定 Windows 路径形式。"""
+    if not path:
+        return ""
+    return os.path.normcase(os.path.normpath(path.strip()))
+
+
+def automation_eligible(info: WindowInfo) -> bool:
+    """自动规则只允许标准、可交互的主任务窗口。
+
+    手动居中仍保持宽松；这些限制只用于会在后台自动触发的规则，避免
+    同进程的通知、浮层和对话框被误当作主窗口。
+    """
+    if not info.exe_path or not info.class_name:
+        return False
+    if info.pid == _own_pid():
+        return False
+    own_exe = _own_exe()
+    if own_exe and normalized_exe_path(info.exe_path) == normalized_exe_path(own_exe):
+        return False
+    if info.class_name in SHELL_CLASSES or info.style & W.WS_CHILD:
+        return False
+    if int(W.user32.GetAncestor(info.hwnd, W.GA_ROOT) or 0) != info.hwnd:
+        return False
+    if info.ex_style & (W.WS_EX_TOOLWINDOW | W.WS_EX_NOACTIVATE):
+        return False
+    # 有 owner 的顶层窗口通常是对话框或临时弹窗；显式 APPWINDOW 除外。
+    if info.owner and not (info.ex_style & W.WS_EX_APPWINDOW):
+        return False
+    return True
 
 
 def _ignored(info: WindowInfo, ignore_list: list[str]) -> bool:
@@ -286,27 +326,12 @@ def _target_rect(info: WindowInfo, pixel_perfect: bool) -> tuple[int, int, int, 
     return x, y, rect.width, rect.height
 
 
-def _restore_wait(hwnd: int, timeout: float = 0.5) -> bool:
-    """还原最小化/最大化窗口，等它真的完成。
-
-    ShowWindowAsync 是异步的，目标进程一忙 60ms 根本不够。等不到就返回
-    False —— 调用方绝不能带着中间状态去算几何、去移动窗口。
-    """
-    W.user32.ShowWindowAsync(hwnd, W.SW_RESTORE)
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        if not W.user32.IsIconic(hwnd) and not W.user32.IsZoomed(hwnd):
-            return True
-        time.sleep(0.015)
-    return not W.user32.IsIconic(hwnd) and not W.user32.IsZoomed(hwnd)
-
-
 def _center_restore_position(hwnd: int) -> bool:
-    """不动窗口的可见状态，只把它还原后的落点改成工作区正中。
+    """不动最小化/最大化状态，只把将来的还原落点改到工作区正中。
 
-    对最小化窗口走 SetWindowPos 是在 -32000 停车位上做几何，会把还原
-    尺寸写坏（应用退出时存下畸形位置，下次打开就"乱飞"）。
-    SetWindowPlacement 才是改还原位置的正规途径。
+    对非普通状态的窗口走 SetWindowPos 既可能碰到 -32000 停车位，也可能
+    意外改变显示状态。SetWindowPlacement 可以只改 rcNormalPosition，并保留
+    原有 showCmd，因此不会让窗口莫名最大化、还原或退出全屏。
     """
     geometry = _restore_geometry(hwnd)
     if geometry is None:
@@ -325,11 +350,10 @@ def _center_restore_position(hwnd: int) -> bool:
 
 
 def center(info: WindowInfo, pixel_perfect: bool = True,
-           restore: bool = True,
            on_centered=None) -> tuple[bool, str]:
     """把单个窗口居中，返回 (是否成功, 原因)。
 
-    on_centered 在成功移动后以 WindowInfo 回调一次，供"居中记忆"记账。
+    on_centered 在成功移动后以 WindowInfo 回调一次，供可选的精确规则收录。
     """
     if info.class_name in IMMOVABLE_CLASSES:
         return False, "系统窗口不参与居中"
@@ -338,20 +362,12 @@ def center(info: WindowInfo, pixel_perfect: bool = True,
 
     hwnd = info.hwnd
 
-    if info.minimized:
-        if restore and _restore_wait(hwnd):
-            info.minimized = False
-        else:
-            # 还原超时，或调用方要求保持原状：只改还原落点，不碰可见状态
-            if _center_restore_position(hwnd):
-                if on_centered is not None:
-                    on_centered(info)
-                return True, ""
-            return False, "系统拒绝了这次移动"
-    elif info.maximized and restore:
-        if not _restore_wait(hwnd):
-            return False, "窗口还在还原中，稍后再试"
-        info.maximized = False
+    if info.minimized or info.maximized:
+        if _center_restore_position(hwnd):
+            if on_centered is not None:
+                on_centered(info)
+            return True, ""
+        return False, "系统拒绝了这次移动"
 
     rect = _effective_rect(hwnd)
     if rect is None or rect.left <= -30000 or rect.width <= 0 or rect.height <= 0:
@@ -413,7 +429,7 @@ def center_all(pixel_perfect: bool = True,
         if info.fullscreen or info.maximized or info.minimized:
             continue
         total += 1
-        ok, _ = center(info, pixel_perfect, restore=False, on_centered=on_centered)
+        ok, _ = center(info, pixel_perfect, on_centered=on_centered)
         if ok:
             count += 1
     return count, total

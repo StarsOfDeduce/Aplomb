@@ -6,11 +6,11 @@
 
 <p align="center">
   <b>为 Windows 而生的精准窗口居中工具</b><br>
-  <sub>三个可配置的全局快捷键 · 像素级对齐 · 缩略图选择器 · 居中记忆 · 系统托盘常驻</sub>
+  <sub>三个可配置的全局快捷键 · 像素级对齐 · 缩略图选择器 · 精确自动居中 · 系统托盘常驻</sub>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.1.1-blue?style=flat-square" alt="版本 1.1.1">
+  <img src="https://img.shields.io/badge/version-1.2.0-blue?style=flat-square" alt="版本 1.2.0">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="PySide6">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT 许可证">
@@ -22,7 +22,7 @@
 
 **Aplomb**（从容）一词兼有"沉着"与"铅垂"之意，这个程序也是同样的态度：安静待命，把窗口放到它该在的位置。
 
-Aplomb 常驻系统托盘，通过三个可选的全局快捷键居中窗口。它还带一个缩略图选择器用于批量整理窗口、一份让常用程序始终保持居中的"居中记忆"名单、一份忽略名单，以及浅色/深色主题。空闲时不轮询窗口列表，安装包按用户安装、不需要管理员权限。
+Aplomb 常驻系统托盘，通过三个可选的全局快捷键居中窗口。它还带一个缩略图选择器用于批量整理窗口、精确匹配主窗口的自动居中规则、一份忽略名单，以及浅色/深色主题。空闲时不轮询窗口列表，安装包按用户安装、不需要管理员权限。
 
 ![Aplomb 深色模式设置界面](screenshots/general-dark.png)
 
@@ -35,12 +35,12 @@ Aplomb 读取 `DWMWA_EXTENDED_FRAME_BOUNDS` 拿到真实可见边框，按可见
 ## 功能特性
 
 - **三个专注的动作**：居中当前窗口、选择窗口居中、全部窗口居中。
-- **居中记忆**：居中过的程序会被记住，它们的新窗口在约 0.1 秒内自动回到屏幕正中；如果程序随后又挪动了自己的窗口，Aplomb 会立刻拉回——而你手动拖动的那一刻它就会放手。事件驱动（`SetWinEventHook`），空闲零轮询。开关和名单都在设置的「程序名单」页。
+- **精确自动居中**：规则按完整程序路径和窗口类匹配，只处理标准主窗口；通知、工具窗和普通对话框不会跟随。Aplomb 在窗口创建或显示时尽早居中一次，随后完全尊重应用和用户的位置调整。事件驱动（`SetWinEventHook`），空闲零轮询。自动收录是独立开关且默认关闭。
 - **默认不占用快捷键**：不录制就不注册任何全局组合键，每项也可以随时清空。
 - **缩略图选择器**：按标题或进程名过滤，键盘导航，`Ctrl` + 点击多选。
 - **多显示器感知**：每个窗口都居中到它当前所在的屏幕。
-- **自动排除**：跳过全屏、最大化、外壳、已忽略和失去响应的窗口。
-- **程序名单**：忽略名单与居中记忆名单双列表管理，可从当前打开的窗口中挑选，也可手动选择 exe；设置窗口开着时，名单实时更新。
+- **状态安全**：全屏窗口、外壳窗口、已忽略和失去响应的窗口会被跳过；批量操作还会跳过最小化与最大化窗口。单独选择非普通状态的窗口时，只在安全可行时更新将来的还原落点，绝不改变当前状态。
+- **程序名单**：忽略名单仍可按 exe 管理；自动居中规则只能从当前打开的标准主窗口建立，避免仅凭进程名误伤同进程通知。
 - **系统 / 浅色 / 深色主题**：克制的界面语言——扁平配色、细边框、圆角。
 - **低空闲开销**：热键驱动，空闲时不做任何窗口轮询。
 
@@ -56,7 +56,7 @@ Aplomb 读取 `DWMWA_EXTENDED_FRAME_BOUNDS` 拿到真实可见边框，按可见
 
 ### 安装包
 
-从 [Releases](../../releases) 下载 `Aplomb-Setup-1.1.1.exe`。
+从 [Releases](../../releases) 下载 `Aplomb-Setup-1.2.0.exe`。
 
 - 安装到 `%LOCALAPPDATA%\Programs\Aplomb`，全程无 UAC 弹窗。
 - 可创建桌面快捷方式、开机自启。
@@ -65,7 +65,7 @@ Aplomb 读取 `DWMWA_EXTENDED_FRAME_BOUNDS` 拿到真实可见边框，按可见
 
 ### 便携版
 
-下载 `Aplomb-1.1.1-portable.zip`，解压后直接运行 `Aplomb.exe`。
+下载 `Aplomb-1.2.0-portable.zip`，解压后直接运行 `Aplomb.exe`。
 
 便携版的设置保存在旁边的 `data\` 目录。删掉 `portable.txt` 即可改回把设置存到 `%APPDATA%\Aplomb`。
 
@@ -97,9 +97,13 @@ python main.py
   "picker_thumbnails": true,
   "ignore_list": [],
   "remember_centered": true,
+  "remember_after_manual_center": false,
+  "remember_rules": [],
   "remembered_apps": []
 }
 ```
+
+从 1.1.x 升级时，旧的 `remembered_apps` 仅含 exe 名，无法安全区分主窗口与通知，因此会被一次性清空；请从当前打开的主窗口重新建立精确规则。
 
 ## 构建
 
@@ -145,7 +149,7 @@ Aplomb/
 ├── app/
 │   ├── win32api.py           # ctypes 声明与安全的 Win32 封装
 │   ├── windows.py            # 窗口盘点、过滤与居中算法
-│   ├── remember.py           # 事件驱动的居中记忆
+│   ├── remember.py           # 事件驱动的精确自动居中规则
 │   ├── hotkeys.py            # RegisterHotKey 与原生事件过滤
 │   ├── thumbnails.py         # PrintWindow 缩略图捕获
 │   ├── icons.py              # 应用图标加载与缓存
@@ -177,12 +181,12 @@ python tools/hang_probe.py  # 启动耗时与 UI 线程响应
 ## 实现说明
 
 - 每次操作都重新读取窗口几何；复用旧矩形会让连续居中产生漂移。
-- 最小化窗口绝不用 `GetWindowRect` 测量——它返回 (-32000, -32000) 的屏外"停车位"和残影尺寸。真实还原矩形来自 `GetWindowPlacement`，还原位置也用 `SetWindowPlacement` 写回，目标程序不可能因 Aplomb 的移动而存下损坏的几何信息。
-- 还原窗口会先等待完成；目标进程忙不过来时，只设置还原落点，绝不在过渡状态移动窗口。
+- 最小化或最大化窗口不会被 Aplomb 擅自还原。真实还原矩形来自 `GetWindowPlacement`，居中结果只写入 `rcNormalPosition`，并保留原有显示状态；这也避开了最小化窗口 (-32000, -32000) 的屏外“停车位”。
+- 全屏窗口始终跳过；Aplomb 不发送最大化、还原或全屏快捷键，所有居中路径都保持窗口状态不变。
 - 纯移动带 `SWP_NOSIZE`，目标应用不会收到多余的 `WM_SIZE`。
 - 阴影补偿设有合理上限；当 `GetWindowRect` 与 DWM 边框严重不一致时（例如 DPI 虚拟化），退回普通矩形居中，宁可不够准也不乱飞。
 - 进程在创建任何窗口之前自行申报 per-monitor-v2 DPI 感知——坐标是物理像素是"合同规定"，而不是 Qt 的隐式行为。
-- 居中记忆监听 `EVENT_OBJECT_SHOW`，约 80ms 后完成居中，随后短暂跟踪 `EVENT_OBJECT_LOCATIONCHANGE`：程序自己挪动了窗口就立刻拉回（几十毫秒内）。`EVENT_SYSTEM_MOVESIZESTART` 一出现立即停止跟踪，用户的拖动永远优先。每个窗口最多纠正数次、只跟踪几秒。
+- 精确自动居中监听窗口创建、显示与销毁事件；创建阶段几何可用时会尝试在显示前处理，否则在显示事件后立即处理一次。它不会持续跟踪或拉回窗口。跨进程 WinEvent 是异步通知，因此不能保证所有第三方程序都完全无闪现。
 - 设置页面把布局尺寸提示钉在固定窗口可视区之下。只要任一页面的首选高度超过可视区，Qt 就会在几何校验（如拖动窗口）时放大这个"固定尺寸"的半透明窗口——1.1.0 早期构建中被部分用户遇到的"拖动拉伸后卡死"即源于此。
 - 窗口标题在确认 `IsHungAppWindow` 之后用 `SendMessageTimeout` 读取，失去响应的程序无法卡死选择器。
 - Qt 原生 `WM_HOTKEY` 的重复投递按消息标识与时间戳去重。
@@ -202,7 +206,7 @@ python tools/hang_probe.py  # 启动耗时与 UI 线程响应
 
 - 仅支持 Windows 10 与 11。
 - 独占全屏的窗口不会被移动。
-- 居中记忆只在窗口出现后的几秒内跟踪；之后持续自行挪动窗口的程序会被放任，若不希望如此可加入忽略名单。
+- 某些程序会在显示后恢复自己的位置；Aplomb 不会与其争抢，因此这些程序可能覆盖自动居中的结果。可继续使用手动快捷键处理。
 - 部分 Electron 或硬件加速窗口无法用 `PrintWindow` 捕获，选择器会显示应用图标替代。
 - 安装版与便携版不要同时运行。单实例锁会把第二次启动重定向到已有进程。
 - 托盘图标深蓝的一半在深色任务栏上 16px 时对比度有限。
