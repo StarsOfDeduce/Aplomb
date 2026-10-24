@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-1.2.0-blue?style=flat-square" alt="版本 1.2.0">
+  <img src="https://img.shields.io/badge/version-1.2.1-blue?style=flat-square" alt="版本 1.2.1">
   <img src="https://img.shields.io/badge/platform-Windows-0078D6?style=flat-square&logo=windows" alt="Windows">
   <img src="https://img.shields.io/badge/framework-PySide6-41CD52?style=flat-square&logo=qt" alt="PySide6">
   <img src="https://img.shields.io/badge/license-MIT-green?style=flat-square" alt="MIT 许可证">
@@ -56,7 +56,7 @@ Aplomb 读取 `DWMWA_EXTENDED_FRAME_BOUNDS` 拿到真实可见边框，按可见
 
 ### 安装包
 
-从 [Releases](../../releases) 下载 `Aplomb-Setup-1.2.0.exe`。
+从 [Releases](../../releases) 下载 `Aplomb-Setup-1.2.1.exe`。
 
 - 安装到 `%LOCALAPPDATA%\Programs\Aplomb`，全程无 UAC 弹窗。
 - 可创建桌面快捷方式、开机自启。
@@ -65,7 +65,7 @@ Aplomb 读取 `DWMWA_EXTENDED_FRAME_BOUNDS` 拿到真实可见边框，按可见
 
 ### 便携版
 
-下载 `Aplomb-1.2.0-portable.zip`，解压后直接运行 `Aplomb.exe`。
+下载 `Aplomb-1.2.1-portable.zip`，解压后直接运行 `Aplomb.exe`。
 
 便携版的设置保存在旁边的 `data\` 目录。删掉 `portable.txt` 即可改回把设置存到 `%APPDATA%\Aplomb`。
 

@@ -72,6 +72,15 @@ class CompactList(QListWidget):
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(200, 80)
 
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        """允许布局压缩空列表，不让两份列表的默认最小值顶高整页。
+
+        QListWidget 默认会为边框、滚动条和一行内容保留约 67px；程序名单页
+        新增第二个开关后，两份默认最小值会把页面推到 571px，高于 532px 的
+        实际内容区。真实高度仍由布局的 stretch 分配，这里只消除错误约束。
+        """
+        return QSize(100, 32)
+
 
 class CappedPage(QWidget):
     """尺寸提示被钉死的页面容器（原因见 PAGE_CAP）。
@@ -218,13 +227,15 @@ class SettingsWindow(QWidget):
 
     # ------------------------------------------------------------------ #
     def _build(self) -> None:
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(SHADOW, SHADOW, SHADOW, SHADOW)
+        # 顶层窗口不用布局承载带阴影的 body。QGraphicsDropShadowEffect 会把
+        # 自己的效果边界计入父布局 sizeHint，拖动时可能反向拉伸原生窗口。
+        # 窗口尺寸固定，直接设置 body 几何即可把阴影限制在预留边距内。
+        self.setFixedSize(860, 664)
 
         self.body = QFrame(self)
         self.body.setObjectName("WindowBody")
         self.body.setAttribute(Qt.WA_StyledBackground, True)
-        outer.addWidget(self.body)
+        self.body.setGeometry(SHADOW, SHADOW, 860 - 2 * SHADOW, 664 - 2 * SHADOW)
 
         shadow = QGraphicsDropShadowEffect(self)
         shadow.setBlurRadius(36)
@@ -247,8 +258,6 @@ class SettingsWindow(QWidget):
         self.stack.addWidget(self._page_ignore())
         self.stack.addWidget(self._page_about())
         body_layout.addWidget(self.stack, 1)
-
-        self.setFixedSize(860, 664)
 
     def _build_tabs(self) -> QWidget:
         bar = QWidget(self.body)

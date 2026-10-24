@@ -14,10 +14,12 @@ sys.path.insert(0, str(BASE))
 _config_temp = tempfile.TemporaryDirectory(prefix="aplomb-ui-smoke-")
 os.environ["APLOMB_CONFIG_DIR"] = _config_temp.name
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QCoreApplication, QEvent, QPointF, Qt
+from PySide6.QtGui import QMouseEvent
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication
 
+from app import win32api as W
 from app.config import Config
 from app.ui import theme
 from app.ui.picker import PickerWindow
@@ -26,6 +28,7 @@ from app.ui.window_chooser import WindowChooser
 
 app = QApplication(sys.argv[:1])
 app.setQuitOnLastWindowClosed(False)
+app.setStyleSheet(theme.stylesheet("dark"))
 
 ok = True
 
@@ -56,6 +59,46 @@ for index in range(4):
     settings.switch_page(index)
     app.processEvents()
     check(f"切到第 {index + 1} 页", settings.stack.currentIndex() == index)
+    page = settings.stack.widget(index)
+    minimum = page.layout().minimumSize().height()
+    check(
+        f"第 {index + 1} 页最小高度不超过内容区",
+        minimum <= settings.stack.height(),
+        f"{minimum} <= {settings.stack.height()}",
+    )
+
+# 连续拖动标题栏后窗口不能被布局拉伸，导航仍须可点击。
+original_size = settings.size()
+title = settings.title_bar
+local = QPointF(120, 24)
+start_global = QPointF(title.mapToGlobal(local.toPoint()))
+QCoreApplication.sendEvent(title, QMouseEvent(
+    QEvent.MouseButtonPress, local, start_global,
+    Qt.LeftButton, Qt.LeftButton, Qt.NoModifier,
+))
+for step in range(1, 81):
+    QCoreApplication.sendEvent(title, QMouseEvent(
+        QEvent.MouseMove, local, start_global + QPointF(step * 3, step),
+        Qt.NoButton, Qt.LeftButton, Qt.NoModifier,
+    ))
+    app.processEvents()
+QCoreApplication.sendEvent(title, QMouseEvent(
+    QEvent.MouseButtonRelease, local, start_global + QPointF(240, 80),
+    Qt.LeftButton, Qt.NoButton, Qt.NoModifier,
+))
+app.processEvents()
+check("连续拖动后设置窗口尺寸稳定", settings.size() == original_size,
+      f"{settings.size()} vs {original_size}")
+native_rect = W.get_window_rect(int(settings.winId()))
+check(
+    "连续拖动后 Win32 原生尺寸稳定",
+    native_rect is not None
+    and (native_rect.width, native_rect.height) == (original_size.width(), original_size.height()),
+    "无窗口矩形" if native_rect is None else f"{native_rect.width}x{native_rect.height}",
+)
+QTest.mouseClick(settings._nav_group.button(1), Qt.LeftButton)
+app.processEvents()
+check("连续拖动后导航仍可点击", settings.stack.currentIndex() == 1)
 
 # 开关
 settings.switch_page(0)  # 常规页
